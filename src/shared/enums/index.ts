@@ -1,0 +1,59 @@
+export enum BookingStatus {
+  INITIATED = 'INITIATED',
+  PENDING_PAYMENT = 'PENDING_PAYMENT',
+  PENDING_GROUP_PAYMENT = 'PENDING_GROUP_PAYMENT',
+  CONFIRMED = 'CONFIRMED',
+  CHECKED_IN = 'CHECKED_IN',
+  ACTIVE = 'ACTIVE',
+  COMPLETED = 'COMPLETED',
+  CANCELLED = 'CANCELLED',
+  EXPIRED = 'EXPIRED',
+}
+
+export enum BookingType {
+  TICKET = 'ticket',
+  TABLE = 'table',
+  APARTMENT = 'apartment',
+  CAR = 'car',
+}
+
+export enum PaymentStatus {
+  UNPAID = 'UNPAID',
+  PARTIALLY_PAID = 'PARTIALLY_PAID',
+  FULLY_PAID = 'FULLY_PAID',
+  REFUNDED = 'REFUNDED',
+}
+
+export enum OrderStatus {
+  CREATED = 'CREATED',
+  ASSIGNED = 'ASSIGNED',
+  ROUTED = 'ROUTED',
+  IN_PREPARATION = 'IN_PREPARATION',
+  READY = 'READY',
+  SERVED = 'SERVED',
+  COMPLETED = 'COMPLETED',
+  CANCELLED = 'CANCELLED',
+}
+
+export enum UserRole {
+  CUSTOMER = 'customer',
+  WAITER = 'waiter',
+  KITCHEN_STAFF = 'kitchen_staff',
+  BAR_STAFF = 'bar_staff',
+  DOOR_STAFF = 'door_staff',
+  MANAGER = 'manager',
+  ADMIN = 'admin',
+  SUPER_ADMIN = 'super_admin',
+}
+
+export enum AuditActionType {
+  BOOKING_CREATED = 'BOOKING_CREATED',
+  BOOKING_UPDATED = 'BOOKING_UPDATED',
+  PAYMENT_PROCESSED = 'PAYMENT_PROCESSED',
+  ORDER_CREATED = 'ORDER_CREATED',
+  ORDER_ASSIGNED = 'ORDER_ASSIGNED',
+  ORDER_COMPLETED = 'ORDER_COMPLETED',
+  ADMIN_OVERRIDE = 'ADMIN_OVERRIDE',
+  USER_CREATED = 'USER_CREATED',
+  USER_UPDATED = 'USER_UPDATED',
+}
