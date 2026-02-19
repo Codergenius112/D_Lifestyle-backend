@@ -7,53 +7,55 @@ import { AuditActionType, UserRole } from '../../shared/enums';
 
 const MAX_LIMIT = 200;
 
+export interface LogActionInput {
+  actionType: AuditActionType;
+  actorId?: string;          // optional (SYSTEM fallback)
+  actorRole?: UserRole;      // optional
+  resourceType?: string;
+  resourceId?: string;
+  changes?: Record<string, any>;
+  ipAddress?: string;
+}
+
 @Injectable()
 export class AuditService {
   constructor(
     @InjectRepository(AuditLog)
-    private auditRepository: Repository<AuditLog>,
+    private readonly auditRepository: Repository<AuditLog>,
   ) {}
 
   // ================= LOG ACTION =================
-  async logAction(logData: {
-    actionType: AuditActionType;
-    actorId: string;
-    actorRole: UserRole;
-    resourceType?: string;
-    resourceId?: string;
-    changes?: Record<string, any>;
-    ipAddress?: string;
-  }): Promise<AuditLog> {
-
-    if (!logData.actorId) {
-      throw new BadRequestException('Audit log must include actorId');
+  async logAction(logData: LogActionInput): Promise<AuditLog> {
+    if (!logData.actionType) {
+      throw new BadRequestException('Audit log must include actionType');
     }
 
+    const actorId = logData.actorId ?? 'SYSTEM';
+
     const previous = await this.auditRepository.findOne({
+      select: ['hash'],
       order: { timestamp: 'DESC' },
     });
 
     const normalizedChanges = logData.changes
-      ? JSON.parse(JSON.stringify(logData.changes))
-      : null;
+      ? this.normalizeObject(logData.changes)
+      : undefined;
 
-    const hashPayload = JSON.stringify({
-      ...logData,
-      changes: normalizedChanges,
-      prevHash: previous?.hash || null,
-    });
-
-    const hash = createHash('sha256').update(hashPayload).digest('hex');
-
-    const auditLog = this.auditRepository.create({
+    const payload = {
       actionType: logData.actionType,
-      actorId: logData.actorId,
+      actorId,
       actorRole: logData.actorRole,
       resourceType: logData.resourceType,
       resourceId: logData.resourceId,
       changes: normalizedChanges,
       ipAddress: logData.ipAddress,
-      prevHash: previous?.hash || null,
+      prevHash: previous?.hash,
+    };
+
+    const hash = this.generateHash(payload);
+
+    const auditLog: AuditLog = this.auditRepository.create({
+      ...payload,
       hash,
     });
 
@@ -61,46 +63,56 @@ export class AuditService {
   }
 
   // ================= AUDIT TRAIL =================
-  async getAuditTrail(resourceId?: string, limit = 50, offset = 0) {
-    limit = Math.min(limit, MAX_LIMIT);
-    offset = Math.max(offset, 0);
+  async getAuditTrail(
+    resourceId?: string,
+    limit = 50,
+    offset = 0,
+  ): Promise<{
+    data: AuditLog[];
+    total: number;
+    limit: number;
+    offset: number;
+  }> {
+    limit = Math.min(Number(limit), MAX_LIMIT);
+    offset = Math.max(Number(offset), 0);
 
-    const query = this.auditRepository
-      .createQueryBuilder('audit')
-      .select([
-        'audit.id',
-        'audit.timestamp',
-        'audit.actionType',
-        'audit.actorId',
-        'audit.actorRole',
-        'audit.resourceType',
-        'audit.resourceId',
-        'audit.changes',
-        'audit.ipAddress',
-      ]);
+    const query = this.auditRepository.createQueryBuilder('audit');
 
     if (resourceId) {
       query.where('audit.resourceId = :resourceId', { resourceId });
     }
 
-    return query
+    const [data, total] = await query
       .orderBy('audit.timestamp', 'DESC')
       .take(limit)
       .skip(offset)
       .getManyAndCount();
+
+    return { data, total, limit, offset };
   }
 
   // ================= ACTION HISTORY =================
-  async getActionHistory(actionType: AuditActionType, limit = 100, offset = 0) {
-    limit = Math.min(limit, MAX_LIMIT);
-    offset = Math.max(offset, 0);
+  async getActionHistory(
+    actionType: AuditActionType,
+    limit = 100,
+    offset = 0,
+  ): Promise<{
+    data: AuditLog[];
+    total: number;
+    limit: number;
+    offset: number;
+  }> {
+    limit = Math.min(Number(limit), MAX_LIMIT);
+    offset = Math.max(Number(offset), 0);
 
-    return this.auditRepository.findAndCount({
+    const [data, total] = await this.auditRepository.findAndCount({
       where: { actionType },
       order: { timestamp: 'DESC' },
       take: limit,
       skip: offset,
     });
+
+    return { data, total, limit, offset };
   }
 
   // ================= VERIFY INTEGRITY =================
@@ -109,28 +121,39 @@ export class AuditService {
       order: { timestamp: 'ASC' },
     });
 
-    let prevHash: string | null = null;
+    let prevHash: string | undefined = undefined;
 
     for (const log of logs) {
-      const recalculated: string = createHash('sha256')
-        .update(
-          JSON.stringify({
-            actionType: log.actionType,
-            actorId: log.actorId,
-            actorRole: log.actorRole,
-            resourceType: log.resourceType,
-            resourceId: log.resourceId,
-            changes: log.changes,
-            ipAddress: log.ipAddress,
-            prevHash,
-          }),
-        )
-        .digest('hex');
+      const recalculated = this.generateHash({
+        actionType: log.actionType,
+        actorId: log.actorId,
+        actorRole: log.actorRole,
+        resourceType: log.resourceType,
+        resourceId: log.resourceId,
+        changes: log.changes,
+        ipAddress: log.ipAddress,
+        prevHash,
+      });
 
-      if (recalculated !== log.hash) return false;
+      if (recalculated !== log.hash) {
+        return false;
+      }
+
       prevHash = log.hash;
     }
 
     return true;
+  }
+
+  // ================= HASH HELPERS =================
+
+  private generateHash(payload: Record<string, any>): string {
+    return createHash('sha256')
+      .update(JSON.stringify(payload))
+      .digest('hex');
+  }
+
+  private normalizeObject(obj: Record<string, any>) {
+    return JSON.parse(JSON.stringify(obj));
   }
 }

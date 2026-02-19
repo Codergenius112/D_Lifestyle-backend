@@ -1,22 +1,32 @@
-import { Injectable } from '@nestjs/common';
+import {
+  Injectable,
+  BadRequestException,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { User } from '../../shared/entities/user.entity';
 import { Booking } from '../../shared/entities/booking.entity';
-import { UserRole, AuditActionType } from '../../shared/enums';
+import { UserRole, AuditActionType, BookingStatus } from '../../shared/enums';
 import { AuditService } from '../audit/audit.service';
 import * as bcrypt from 'bcryptjs';
+import { In } from 'typeorm';
 
 @Injectable()
 export class AdminService {
   constructor(
     @InjectRepository(User)
-    private userRepository: Repository<User>,
+    private readonly userRepository: Repository<User>,
+
     @InjectRepository(Booking)
-    private bookingRepository: Repository<Booking>,
-    private auditService: AuditService,
+    private readonly bookingRepository: Repository<Booking>,
+
+    private readonly auditService: AuditService,
   ) {}
 
+  // =========================
+  // ADD STAFF
+  // =========================
   async addStaff(
     staffData: {
       email: string;
@@ -33,43 +43,54 @@ export class AdminService {
     });
 
     if (existingUser) {
-      throw new Error('Email already exists');
+      throw new BadRequestException('Email already exists');
     }
 
     const hashedPassword = await bcrypt.hash('DefaultPassword123', 10);
 
-    const user = new User();
-    user.email = staffData.email;
-    user.passwordHash = hashedPassword;
-    user.firstName = staffData.firstName;
-    user.lastName = staffData.lastName;
-    user.phone = staffData.phone;
-    user.role = staffData.role;
+    const user = this.userRepository.create({
+      email: staffData.email,
+      passwordHash: hashedPassword,
+      firstName: staffData.firstName,
+      lastName: staffData.lastName,
+      phone: staffData.phone,
+      role: staffData.role,
+      isActive: true,
+    });
 
     const savedUser = await this.userRepository.save(user);
 
     await this.auditService.logAction({
       actionType: AuditActionType.USER_CREATED,
       actorId: adminId,
+      actorRole: UserRole.ADMIN, // ✅ Correct actor role
       resourceType: 'staff',
       resourceId: savedUser.id,
-      changes: { email: staffData.email, role: staffData.role },
+      changes: {
+        email: staffData.email,
+        role: staffData.role,
+      },
       ipAddress,
     });
 
     return savedUser;
   }
 
+  // =========================
+  // UPDATE STAFF ROLE
+  // =========================
   async updateStaffRole(
     staffId: string,
     newRole: UserRole,
     adminId: string,
     ipAddress: string,
   ): Promise<User> {
-    const staff = await this.userRepository.findOne({ where: { id: staffId } });
+    const staff = await this.userRepository.findOne({
+      where: { id: staffId },
+    });
 
     if (!staff) {
-      throw new Error('Staff member not found');
+      throw new NotFoundException('Staff member not found');
     }
 
     const oldRole = staff.role;
@@ -80,29 +101,53 @@ export class AdminService {
     await this.auditService.logAction({
       actionType: AuditActionType.USER_UPDATED,
       actorId: adminId,
+      actorRole: UserRole.ADMIN,
       resourceType: 'staff',
       resourceId: staffId,
-      changes: { role: { from: oldRole, to: newRole } },
+      changes: {
+        role: { from: oldRole, to: newRole },
+      },
       ipAddress,
     });
 
     return updated;
   }
 
-  async listStaff(limit = 50, offset = 0) {
-    return this.userRepository.findAndCount({
-      where: { role: UserRole.MANAGER },
-      skip: offset,
-      take: limit,
-      order: { createdAt: 'DESC' },
-    });
-  }
+  // =========================
+  // LIST STAFF
+  // =========================
+async listStaff(limit = 50, offset = 0) {
+  return this.userRepository.findAndCount({
+    where: {
+      role: In([
+        UserRole.WAITER,
+        UserRole.KITCHEN_STAFF,
+        UserRole.BAR_STAFF,
+        UserRole.DOOR_STAFF,
+        UserRole.MANAGER,
+      ]),
+    },
+    skip: offset,
+    take: limit,
+    order: { createdAt: 'DESC' },
+  });
+}
 
-  async deactivateStaff(staffId: string, adminId: string, ipAddress: string): Promise<User> {
-    const staff = await this.userRepository.findOne({ where: { id: staffId } });
+
+  // =========================
+  // DEACTIVATE STAFF
+  // =========================
+  async deactivateStaff(
+    staffId: string,
+    adminId: string,
+    ipAddress: string,
+  ): Promise<User> {
+    const staff = await this.userRepository.findOne({
+      where: { id: staffId },
+    });
 
     if (!staff) {
-      throw new Error('Staff member not found');
+      throw new NotFoundException('Staff member not found');
     }
 
     staff.isActive = false;
@@ -112,6 +157,7 @@ export class AdminService {
     await this.auditService.logAction({
       actionType: AuditActionType.USER_UPDATED,
       actorId: adminId,
+      actorRole: UserRole.ADMIN,
       resourceType: 'staff',
       resourceId: staffId,
       changes: { isActive: false },
@@ -121,6 +167,9 @@ export class AdminService {
     return updated;
   }
 
+  // =========================
+  // GET BOOKING (ADMIN VIEW)
+  // =========================
   async getBookingOverride(bookingId: string) {
     return this.bookingRepository.findOne({
       where: { id: bookingId },
@@ -128,31 +177,37 @@ export class AdminService {
     });
   }
 
+  // =========================
+  // OVERRIDE BOOKING STATUS
+  // =========================
   async overrideBookingStatus(
     bookingId: string,
-    newStatus: string,
+    newStatus: BookingStatus,
     adminId: string,
     ipAddress: string,
-  ) {
+  ): Promise<Booking> {
     const booking = await this.bookingRepository.findOne({
       where: { id: bookingId },
     });
 
     if (!booking) {
-      throw new Error('Booking not found');
+      throw new NotFoundException('Booking not found');
     }
 
     const oldStatus = booking.status;
-    booking.status = newStatus as any;
+    booking.status = newStatus; // ✅ No more "as any"
 
     const updated = await this.bookingRepository.save(booking);
 
     await this.auditService.logAction({
       actionType: AuditActionType.ADMIN_OVERRIDE,
       actorId: adminId,
+      actorRole: UserRole.ADMIN,
       resourceType: 'booking',
       resourceId: bookingId,
-      changes: { status: { from: oldStatus, to: newStatus } },
+      changes: {
+        status: { from: oldStatus, to: newStatus },
+      },
       ipAddress,
     });
 

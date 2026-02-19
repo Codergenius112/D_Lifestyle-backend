@@ -1,10 +1,10 @@
 import { MigrationInterface, QueryRunner, Table, TableIndex } from 'typeorm';
 
-export class CreateGroupBookingsTable implements MigrationInterface {
+export class CreateFinancialLedgerTable1771411035850 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.createTable(
       new Table({
-        name: 'group_bookings',
+        name: 'financial_ledger',
         columns: [
           {
             name: 'id',
@@ -15,44 +15,36 @@ export class CreateGroupBookingsTable implements MigrationInterface {
           {
             name: 'bookingId',
             type: 'uuid',
+            isNullable: true,
           },
           {
-            name: 'initiatorId',
-            type: 'uuid',
+            name: 'transactionType',
+            type: 'enum',
+            enum: ['DEBIT', 'CREDIT'],
           },
           {
-            name: 'participantIds',
+            name: 'amount',
+            type: 'decimal',
+            precision: 12,
+            scale: 2,
+          },
+          {
+            name: 'currency',
+            type: 'varchar',
+            length: '3',
+            default: "'NGN'",
+          },
+          {
+            name: 'description',
             type: 'text',
-            isArray: true,
           },
           {
-            name: 'contributionTracker',
-            type: 'jsonb',
+            name: 'relatedUserId',
+            type: 'uuid',
+            isNullable: true,
           },
           {
-            name: 'totalRequired',
-            type: 'decimal',
-            precision: 12,
-            scale: 2,
-          },
-          {
-            name: 'totalPaid',
-            type: 'decimal',
-            precision: 12,
-            scale: 2,
-            default: 0,
-          },
-          {
-            name: 'countdownExpiresAt',
-            type: 'timestamp',
-          },
-          {
-            name: 'createdAt',
-            type: 'timestamp',
-            default: 'CURRENT_TIMESTAMP',
-          },
-          {
-            name: 'updatedAt',
+            name: 'timestamp',
             type: 'timestamp',
             default: 'CURRENT_TIMESTAMP',
           },
@@ -62,23 +54,31 @@ export class CreateGroupBookingsTable implements MigrationInterface {
     );
 
     await queryRunner.createIndex(
-      'group_bookings',
+      'financial_ledger',
       new TableIndex({
-        name: 'idx_group_booking_id',
+        name: 'idx_ledger_booking_id',
         columnNames: ['bookingId'],
       }),
     );
 
     await queryRunner.createIndex(
-      'group_bookings',
+      'financial_ledger',
       new TableIndex({
-        name: 'idx_group_initiator_id',
-        columnNames: ['initiatorId'],
+        name: 'idx_ledger_timestamp',
+        columnNames: ['timestamp'],
       }),
     );
+
+    // Prevent deletion of ledger entries
+    await queryRunner.query(`
+      CREATE TRIGGER prevent_ledger_deletion
+      BEFORE DELETE ON financial_ledger
+      FOR EACH ROW
+      EXECUTE FUNCTION prevent_audit_deletion();
+    `);
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
-    await queryRunner.dropTable('group_bookings');
+    await queryRunner.dropTable('financial_ledger');
   }
 }

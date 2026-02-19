@@ -1,6 +1,6 @@
 import { MigrationInterface, QueryRunner, Table, TableIndex } from 'typeorm';
 
-export class CreateAuditLogsTable implements MigrationInterface {
+export class CreateAuditLogsTable1771410651095 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {
     // required for hashing
     await queryRunner.query(`CREATE EXTENSION IF NOT EXISTS pgcrypto;`);

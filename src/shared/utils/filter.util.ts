@@ -51,7 +51,11 @@ export class FilterUtil {
 
   static getSortOption(sortBy?: string, sortOrder: 'ASC' | 'DESC' = 'DESC'): Record<string, any> {
     const allowedFields = ['createdAt', 'updatedAt', 'basePrice', 'totalAmount', 'status'];
-    const field = allowedFields.includes(sortBy) ? sortBy : 'createdAt';
+    const field: string =
+  sortBy && allowedFields.includes(sortBy)
+    ? sortBy
+    : 'createdAt';
+
 
     return {
       [field]: sortOrder,

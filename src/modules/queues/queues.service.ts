@@ -6,7 +6,7 @@ import { AuditService } from '../audit/audit.service';
 import { NotificationService } from '../notifications/notifications.service';
 
 @Injectable()
-export class QueueService {
+export class QueuesService {
   constructor(
     @InjectRepository(Queue)
     private queueRepository: Repository<Queue>,

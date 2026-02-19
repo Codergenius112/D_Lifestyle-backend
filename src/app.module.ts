@@ -6,16 +6,16 @@ import { JwtModule } from '@nestjs/jwt';
 import { BullModule } from '@nestjs/bull';
 import { ScheduleModule } from '@nestjs/schedule';
 import { dataSourceOptions } from './database/data-source';
+import { StringValue } from 'ms';
 
 // ============================================================================
 // CONTROLLERS
 // ============================================================================
 import { AuthController } from './modules/auth/auth.controller';
-//import { BookingController } from './modules/bookings/booking.controller';
-import { BookingController } from '/src/modules/bookings/booking.controller';
-import { PaymentController } from './modules/payments/payment.controller';
-import { OrderController } from './modules/orders/order.controller';
-import { QueueController } from './modules/queues/queue.controller';
+import { BookingsController } from './modules/bookings/bookings.controller';
+import { PaymentsController } from './modules/payments/payments.controller';
+import { OrdersController } from './modules/orders/orders.controller';
+import { QueuesController } from './modules/queues/queues.controller';
 import { AdminBookingsController } from './modules/admin/admin-bookings.controller';
 import { AdminOrdersController } from './modules/admin/admin-orders.controller';
 import { AdminStaffController } from './modules/admin/admin-staff.controller';
@@ -27,9 +27,9 @@ import { AuditController } from './modules/audit/audit.controller';
 // ============================================================================
 import { AuthService } from './modules/auth/auth.service';
 import { JwtStrategy } from './modules/auth/jwt.strategy';
-import { BookingService } from './modules/bookings/booking.service';
-import { PaymentService } from './modules/payments/payment.service';
-import { OrderService } from './modules/orders/order.service';
+import { BookingService } from './modules/bookings/bookings.service';
+import { PaymentService } from './modules/payments/payments.service';
+import { OrderService } from './modules/orders/orders.service';
 import { AuditService } from './modules/audit/audit.service';
 
 // ============================================================================
@@ -38,8 +38,8 @@ import { AuditService } from './modules/audit/audit.service';
 import { LateArrivalService } from './modules/bookings/late-arrival.service';
 import { GroupBookingCountdownService } from './modules/bookings/group-booking-countdown.service';
 import { WalletService } from './modules/payments/wallet.service';
-import { QueueService } from './modules/queues/queue.service';
-import { NotificationService } from './modules/notifications/notification.service';
+import { QueuesService } from './modules/queues/queues.service';
+import { NotificationService } from './modules/notifications/notifications.service';
 import { NotificationProcessor } from './modules/notifications/notification.processor';
 import { AnalyticsService } from './modules/analytics/analytics.service';
 import { BookingSchedulerService } from './modules/bookings/booking-scheduler.service';
@@ -75,7 +75,8 @@ import {
   FinancialLedger,
   Queue,
   GroupBooking,
-} from '../src/modules/shared/entities';
+} from './shared/entities';
+
 
 @Module({
   imports: [
@@ -109,7 +110,10 @@ import {
     PassportModule,
     JwtModule.register({
       secret: process.env.JWT_SECRET || 'your-secret-key',
-      signOptions: { expiresIn: process.env.JWT_EXPIRATION || '3600s' },
+    signOptions: {
+  expiresIn: (process.env.JWT_EXPIRATION || '3600s') as StringValue,
+},
+
     }),
 
     // ========================================================================
@@ -118,7 +122,8 @@ import {
     BullModule.forRoot({
       redis: {
         host: process.env.REDIS_HOST || 'localhost',
-        port: parseInt(process.env.REDIS_PORT, 10) || 6379,
+        port: parseInt(process.env.REDIS_PORT ?? '6379', 10),
+
       },
     }),
     BullModule.registerQueue({
@@ -136,10 +141,10 @@ import {
     // EXISTING CONTROLLERS
     // ========================================================================
     AuthController,
-    BookingController,
-    PaymentController,
-    OrderController,
-    QueueController,
+    BookingsController,
+    PaymentsController,
+    OrdersController,
+    QueuesController,
     AdminBookingsController,
     AdminOrdersController,
     AdminStaffController,
@@ -171,7 +176,7 @@ import {
     WalletService,
 
     // Queue Management (Position Tracking)
-    QueueService,
+    QueuesService,
 
     // Notifications (Real-time & Async)
     NotificationService,

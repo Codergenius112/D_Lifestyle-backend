@@ -16,7 +16,7 @@ export class AuditLog {
   actorId: string;
 
   @Column({ type: 'enum', enum: UserRole, nullable: true })
-  actorRole: UserRole;
+  actorRole?: UserRole;
 
   @Column({ type: 'varchar', length: 100, nullable: true })
   resourceType: string;

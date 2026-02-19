@@ -9,11 +9,12 @@ import { AuditLog } from '../shared/entities/audit-log.entity';
 import { FinancialLedger } from '../shared/entities/financial-ledger.entity';
 import { Queue } from '../shared/entities/queue.entity';
 import { GroupBooking } from '../shared/entities/group-booking.entity';
+import { join } from 'path';
 
 export const dataSourceOptions: DataSourceOptions = {
   type: 'postgres',
   host: process.env.DATABASE_HOST || 'localhost',
-  port: parseInt(process.env.DATABASE_PORT) || 5432,
+  port: parseInt(process.env.DATABASE_PORT ?? '5432'),
   username: process.env.DATABASE_USER || 'dlifestyle',
   password: process.env.DATABASE_PASSWORD || '9904DTao!',
   database: process.env.DATABASE_NAME || 'dlifestyle_db',
@@ -28,7 +29,7 @@ export const dataSourceOptions: DataSourceOptions = {
     Queue,
     GroupBooking,
   ],
-  migrations: [path.join(__dirname, '../database/migrations/*.ts')],
+  migrations: [join(__dirname, '../database/migrations/*.{ts,js}')],
   synchronize: false, // Use migrations instead
   logging: process.env.NODE_ENV === 'development',
   ssl: process.env.DATABASE_SSL === 'true',

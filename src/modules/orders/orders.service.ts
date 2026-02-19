@@ -5,6 +5,7 @@ import { Order } from '../../shared/entities/order.entity';
 import { OrderStatus, AuditActionType } from '../../shared/enums';
 import { AuditService } from '../audit/audit.service';
 
+
 @Injectable()
 export class OrderService {
   constructor(
@@ -154,7 +155,7 @@ export class OrderService {
 
   async getOrdersByStation(stationId: string): Promise<Order[]> {
     return this.orderRepository.find({
-      where: { routedToStationId: stationId, status: 'IN_PREPARATION' },
+      where: { routedToStationId: stationId, status: OrderStatus.IN_PREPARATION },
       order: { createdAt: 'ASC' },
     });
   }
