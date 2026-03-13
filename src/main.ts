@@ -43,7 +43,7 @@ async function bootstrap() {
 
   const port = process.env.APP_PORT || 3000;
   await app.listen(port);
-  console.log(` D'Lifestyle Backend running on http://localhost:${port}`);
+  console.log(` D'Lifestyle Backend running on -- http://localhost:${port}`);
   console.log(` API Documentation: http://localhost:${port}/api/docs`);
 }
 

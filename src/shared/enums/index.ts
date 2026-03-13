@@ -24,6 +24,14 @@ export enum PaymentStatus {
   REFUNDED = 'REFUNDED',
 }
 
+export enum TableCategory {
+  STANDARD = 'standard',
+  VIP = 'vip',
+  VVIP = 'vvip',
+  BOOTH = 'booth',
+  PRIVATE = 'private',
+}
+
 export enum OrderStatus {
   CREATED = 'CREATED',
   ASSIGNED = 'ASSIGNED',

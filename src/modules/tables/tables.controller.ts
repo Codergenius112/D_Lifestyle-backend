@@ -37,6 +37,14 @@ export class TablesController {
     return { bookings, total };
   }
 
+  // ── IMPORTANT: must be above @Get(':id') or NestJS will treat
+  //   'venue' as a booking UUID and 404 every time ─────────────────────────
+  @Get('venue/:venueId')
+  @Roles(UserRole.CUSTOMER)
+  async getVenueTables(@Param('venueId') venueId: string) {
+    return this.tablesService.getVenueTables(venueId);
+  }
+
   @Get(':id')
   @Roles(UserRole.CUSTOMER)
   async getBooking(@Param('id') bookingId: string) {

@@ -2,6 +2,7 @@ import { Injectable, NotFoundException, BadRequestException } from '@nestjs/comm
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Booking } from '../../shared/entities/booking.entity';
+import { TableListing } from '../../shared/entities/table-listing.entity';
 import { BookingType, BookingStatus, PaymentStatus, AuditActionType } from '../../shared/enums';
 import { AuditService } from '../audit/audit.service';
 
@@ -18,15 +19,57 @@ export class TablesService {
   constructor(
     @InjectRepository(Booking)
     private bookingRepository: Repository<Booking>,
+    @InjectRepository(TableListing)
+    private tableListingRepository: Repository<TableListing>,
     private auditService: AuditService,
   ) {}
 
+  // ── GET /tables/venue/:venueId ─────────────────────────────────────────────
+  async getVenueTables(venueId: string) {
+    // 1. Fetch all active listings for this venue
+    const listings = await this.tableListingRepository.find({
+      where: { venueId, isActive: true },
+      order: { price: 'ASC' },
+    });
+
+    if (!listings.length) {
+      return { tables: [], total: 0, venueId };
+    }
+
+    // 2. Find all confirmed bookings for these table IDs
+    const tableIds = listings.map((t) => t.id);
+    const confirmedBookings = await this.bookingRepository
+      .createQueryBuilder('booking')
+      .where('booking.resourceId IN (:...tableIds)', { tableIds })
+      .andWhere('booking.bookingType = :type', { type: BookingType.TABLE })
+      .andWhere('booking.status = :status', { status: BookingStatus.CONFIRMED })
+      .select(['booking.resourceId'])
+      .getMany();
+
+    const bookedTableIds = new Set(confirmedBookings.map((b) => b.resourceId));
+
+    // 3. Return listings with live availability flag
+    const tables = listings.map((listing) => ({
+      id: listing.id,
+      venueId: listing.venueId,
+      name: listing.name,
+      category: listing.category,
+      capacity: listing.capacity,
+      price: Number(listing.price),
+      description: listing.description,
+      features: listing.features ?? [],
+      available: !bookedTableIds.has(listing.id),
+    }));
+
+    return { tables, total: tables.length, venueId };
+  }
+
+  // ── POST /tables ───────────────────────────────────────────────────────────
   async bookTable(
     userId: string,
     createTableBookingDto: CreateTableBookingDto,
     ipAddress: string,
   ): Promise<Booking> {
-    // Check availability (simplified - in production check against other bookings)
     const existingBooking = await this.bookingRepository.findOne({
       where: {
         resourceId: createTableBookingDto.tableId,
@@ -68,6 +111,7 @@ export class TablesService {
     return saved;
   }
 
+  // ── GET /tables/:id ────────────────────────────────────────────────────────
   async getTableBooking(bookingId: string): Promise<Booking> {
     const booking = await this.bookingRepository.findOne({
       where: { id: bookingId, bookingType: BookingType.TABLE },
@@ -80,6 +124,7 @@ export class TablesService {
     return booking;
   }
 
+  // ── GET /tables ────────────────────────────────────────────────────────────
   async getUserTableBookings(userId: string, limit = 20, offset = 0) {
     return this.bookingRepository.findAndCount({
       where: { userId, bookingType: BookingType.TABLE },

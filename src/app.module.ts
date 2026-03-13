@@ -76,6 +76,20 @@ import {
   Queue,
   GroupBooking,
 } from './shared/entities';
+import { ApartmentListing } from './shared/entities/apartment-listing.entity';
+import { CarListing } from './shared/entities/car-listing.entity';
+import { ApartmentListingsService } from './modules/apartments/apartments-listings.services';
+import { CarListingsService } from './modules/cars/car-listings.service';
+import { ApartmentsModule } from './modules/apartments/apartments.module';
+import { CarsModule } from './modules/cars/cars.module';
+import { CarsController } from './modules/cars/cars.controller';
+import { ApartmentsController } from './modules/apartments/apartments.controller';
+import { CarsService } from './modules/cars/cars.service';
+import { ApartmentsService } from './modules/apartments/apartments.service';
+import { TicketsController } from './modules/tickets/tickets.controller';
+import { TicketsService } from './modules/tickets/tickets.service';
+import { TablesService } from './modules/tables/tables.service';
+import { TablesController } from './modules/tables/tables.controller';
 
 
 @Module({
@@ -102,6 +116,8 @@ import {
       FinancialLedger,
       Queue,
       GroupBooking,
+      CarListing,
+      ApartmentListing
     ]),
 
     // ========================================================================
@@ -150,6 +166,10 @@ import {
     AdminStaffController,
     AdminAnalyticsController,
     AuditController,
+    CarsController,
+    ApartmentsController,
+    TicketsController,
+    TablesController,
   ],
 
   providers: [
@@ -162,6 +182,8 @@ import {
     PaymentService,
     OrderService,
     AuditService,
+    CarsService,
+    ApartmentsService,
 
     // ========================================================================
     // PHASE 4 - NEW BUSINESS LOGIC SERVICES
@@ -196,6 +218,13 @@ import {
 
     // Validation & Business Rules
     ValidationService,
+
+    // Listings services
+    ApartmentListingsService,
+    CarListingsService,
+
+    TicketsService,
+    TablesService,
 
     // ========================================================================
     // GUARDS

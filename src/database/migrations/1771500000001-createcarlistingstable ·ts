@@ -1,0 +1,46 @@
+import { MigrationInterface, QueryRunner } from 'typeorm';
+
+export class CreateCarListingsTable1771500000001 implements MigrationInterface {
+  name = 'CreateCarListingsTable1771500000001';
+
+  public async up(queryRunner: QueryRunner): Promise<void> {
+    await queryRunner.query(`
+      CREATE TABLE "car_listings" (
+        "id"           uuid          NOT NULL DEFAULT uuid_generate_v4(),
+        "make"         varchar(100)  NOT NULL,
+        "model"        varchar(100)  NOT NULL,
+        "year"         integer       NOT NULL,
+        "color"        varchar(50)   NOT NULL,
+        "plateNumber"  varchar(20)   NOT NULL,
+        "transmission" varchar(20)   NOT NULL,
+        "category"     varchar(50)   NOT NULL,
+        "seats"        integer       NOT NULL,
+        "pricePerDay"  numeric(12,2) NOT NULL,
+        "description"  text          NOT NULL,
+        "features"     jsonb         NOT NULL DEFAULT '[]',
+        "images"       jsonb         NOT NULL DEFAULT '[]',
+        "city"         varchar(100)  NOT NULL,
+        "state"        varchar(100)  NOT NULL,
+        "withDriver"   boolean       NOT NULL DEFAULT false,
+        "isActive"     boolean       NOT NULL DEFAULT true,
+        "managedBy"    uuid,
+        "createdAt"    TIMESTAMP     NOT NULL DEFAULT now(),
+        "updatedAt"    TIMESTAMP     NOT NULL DEFAULT now(),
+        CONSTRAINT "PK_car_listings" PRIMARY KEY ("id")
+      )
+    `);
+
+    await queryRunner.query(`
+      CREATE INDEX "idx_car_listings_active" ON "car_listings" ("isActive")
+    `);
+    await queryRunner.query(`
+      CREATE INDEX "idx_car_listings_city" ON "car_listings" ("city")
+    `);
+  }
+
+  public async down(queryRunner: QueryRunner): Promise<void> {
+    await queryRunner.query(`DROP INDEX "idx_car_listings_city"`);
+    await queryRunner.query(`DROP INDEX "idx_car_listings_active"`);
+    await queryRunner.query(`DROP TABLE "car_listings"`);
+  }
+}

@@ -10,6 +10,7 @@ import { FinancialLedger } from '../shared/entities/financial-ledger.entity';
 import { Queue } from '../shared/entities/queue.entity';
 import { GroupBooking } from '../shared/entities/group-booking.entity';
 import { join } from 'path';
+import { ApartmentListing, CarListing } from '../shared/entities';
 
 export const dataSourceOptions: DataSourceOptions = {
   type: 'postgres',
@@ -28,9 +29,12 @@ export const dataSourceOptions: DataSourceOptions = {
     FinancialLedger,
     Queue,
     GroupBooking,
+    CarListing,
+    ApartmentListing
   ],
-  migrations: [join(__dirname, '../database/migrations/*.{ts,js}')],
-  synchronize: false, // Use migrations instead
+  // migrations: [join(__dirname, '../database/migrations/*.{ts,js}')],
+  synchronize: true,
+  // synchronize: false, // Use migrations instead
   logging: process.env.NODE_ENV === 'development',
   ssl: process.env.DATABASE_SSL === 'true',
 };

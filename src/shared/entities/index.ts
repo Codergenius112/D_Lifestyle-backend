@@ -7,3 +7,5 @@ export * from './financial-ledger.entity';
 export * from './group-booking.entity';
 export * from './wallet.entity';
 export * from './queue.entity';
+export * from './apartment-listing.entity';
+export * from './car-listing.entity';
