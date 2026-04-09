@@ -1,13 +1,6 @@
 import {
-  Controller,
-  Get,
-  Patch,
-  Post,
-  Body,
-  Param,
-  UseGuards,
-  HttpCode,
-  Query,
+  Controller, Get, Patch, Post,
+  Body, Param, UseGuards, HttpCode, Query,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
@@ -32,28 +25,29 @@ export class AdminOrdersController {
 
   @Get()
   @Roles(UserRole.ADMIN, UserRole.MANAGER)
-  @ApiOperation({ summary: 'List all orders (admin)' })
-  async listAllOrders(@Query('limit') limit = 50, @Query('offset') offset = 0) {
-    return { message: 'All orders list' };
+  @ApiOperation({ summary: 'List all orders' })
+  async listAllOrders(
+    @Query('limit') limit = 50,
+    @Query('offset') offset = 0,
+  ) {
+    return this.orderService.getAllOrders(Number(limit), Number(offset));
   }
 
   @Get('live')
-  @Roles(UserRole.ADMIN, UserRole.MANAGER)
-  @ApiOperation({ summary: 'Get live orders dashboard' })
+  @Roles(UserRole.ADMIN, UserRole.MANAGER, UserRole.WAITER, UserRole.KITCHEN_STAFF, UserRole.BAR_STAFF)
+  @ApiOperation({ summary: 'Live orders dashboard' })
   async getLiveOrders() {
-    return { message: 'Live orders' };
+    return this.orderService.getLiveOrders();
   }
 
   @Get('by-station/:stationId')
   @Roles(UserRole.KITCHEN_STAFF, UserRole.BAR_STAFF, UserRole.MANAGER)
-  @ApiOperation({ summary: 'Get orders for specific station' })
   async getStationOrders(@Param('stationId') stationId: string) {
     return this.orderService.getOrdersByStation(stationId);
   }
 
   @Get('by-waiter/:waiterId')
   @Roles(UserRole.WAITER, UserRole.MANAGER)
-  @ApiOperation({ summary: 'Get orders assigned to waiter' })
   async getWaiterOrders(@Param('waiterId') waiterId: string) {
     return this.orderService.getOrdersByAssignedWaiter(waiterId);
   }
@@ -61,44 +55,36 @@ export class AdminOrdersController {
   @Patch(':id/status')
   @Roles(UserRole.ADMIN, UserRole.MANAGER, UserRole.KITCHEN_STAFF, UserRole.BAR_STAFF)
   @HttpCode(200)
-  @ApiOperation({ summary: 'Update order status' })
   async updateOrderStatus(
     @Param('id') orderId: string,
-    @Body() updateStatusDto: UpdateOrderStatusDto,
+    @Body() dto: UpdateOrderStatusDto,
     @CurrentUser() user: any,
     @IpAddress() ipAddress: string,
   ) {
-    return this.orderService.updateOrderStatus(
-      orderId,
-      updateStatusDto.status as any,
-      user.id,
-      ipAddress,
-    );
+    return this.orderService.updateOrderStatus(orderId, dto.status as any, user.id, ipAddress);
   }
 
   @Post(':id/assign')
   @Roles(UserRole.ADMIN, UserRole.MANAGER)
   @HttpCode(200)
-  @ApiOperation({ summary: 'Assign order to waiter' })
   async assignWaiter(
     @Param('id') orderId: string,
-    @Body() assignDto: AssignOrderToWaiterDto,
+    @Body() dto: AssignOrderToWaiterDto,
     @CurrentUser() user: any,
     @IpAddress() ipAddress: string,
   ) {
-    return this.orderService.assignOrderToWaiter(orderId, assignDto.waiterId, user.id, ipAddress);
+    return this.orderService.assignOrderToWaiter(orderId, dto.waiterId, user.id, ipAddress);
   }
 
   @Post(':id/route')
   @Roles(UserRole.ADMIN, UserRole.MANAGER)
   @HttpCode(200)
-  @ApiOperation({ summary: 'Route order to station' })
   async routeOrder(
     @Param('id') orderId: string,
-    @Body() routeDto: RouteOrderToStationDto,
+    @Body() dto: RouteOrderToStationDto,
     @CurrentUser() user: any,
     @IpAddress() ipAddress: string,
   ) {
-    return this.orderService.routeOrderToStation(orderId, routeDto.stationId, user.id, ipAddress);
+    return this.orderService.routeOrderToStation(orderId, dto.stationId, user.id, ipAddress);
   }
 }

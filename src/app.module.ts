@@ -8,235 +8,142 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { dataSourceOptions } from './database/data-source';
 import { StringValue } from 'ms';
 
-// ============================================================================
-// CONTROLLERS
-// ============================================================================
-import { AuthController } from './modules/auth/auth.controller';
-import { BookingsController } from './modules/bookings/bookings.controller';
-import { PaymentsController } from './modules/payments/payments.controller';
-import { OrdersController } from './modules/orders/orders.controller';
-import { QueuesController } from './modules/queues/queues.controller';
-import { AdminBookingsController } from './modules/admin/admin-bookings.controller';
-import { AdminOrdersController } from './modules/admin/admin-orders.controller';
-import { AdminStaffController } from './modules/admin/admin-staff.controller';
+// Controllers
+import { AuthController }           from './modules/auth/auth.controller';
+import { BookingsController }       from './modules/bookings/bookings.controller';
+import { PaymentsController }       from './modules/payments/payments.controller';
+import { PaystackWebhookController } from './modules/payments/paystack-webhook.controller';
+import { WalletController }         from './modules/payments/wallet.controller';
+import { OrdersController }         from './modules/orders/orders.controller';
+import { MenuController }           from './modules/orders/menu.controller';
+import { QueuesController }         from './modules/queues/queues.controller';
+import { TicketsController }        from './modules/tickets/tickets.controller';
+import { TablesController }         from './modules/tables/tables.controller';
+import { ApartmentsController }     from './modules/apartments/apartments.controller';
+import { CarsController }           from './modules/cars/cars.controller';
+import { EventsController }         from './modules/events/events.controller';
+import { NotificationsController }  from './modules/notifications/notifications.controller';
+import { AdminBookingsController }  from './modules/admin/admin-bookings.controller';
+import { AdminOrdersController }    from './modules/admin/admin-orders.controller';
+import { AdminStaffController }     from './modules/admin/admin-staff.controller';
 import { AdminAnalyticsController } from './modules/admin/admin-analytics.controller';
-import { AuditController } from './modules/audit/audit.controller';
+import { AuditController }          from './modules/audit/audit.controller';
 
-// ============================================================================
-// EXISTING SERVICES
-// ============================================================================
-import { AuthService } from './modules/auth/auth.service';
-import { JwtStrategy } from './modules/auth/jwt.strategy';
-import { BookingService } from './modules/bookings/bookings.service';
-import { PaymentService } from './modules/payments/payments.service';
-import { OrderService } from './modules/orders/orders.service';
-import { AuditService } from './modules/audit/audit.service';
-
-// ============================================================================
-// PHASE 4 - NEW SERVICES (Late Arrival, Group Booking, Wallet, Queue, etc.)
-// ============================================================================
-import { LateArrivalService } from './modules/bookings/late-arrival.service';
+// Services
+import { AuthService }                  from './modules/auth/auth.service';
+import { JwtStrategy }                  from './modules/auth/jwt.strategy';
+import { BookingService }               from './modules/bookings/bookings.service';
+import { LateArrivalService }           from './modules/bookings/late-arrival.service';
 import { GroupBookingCountdownService } from './modules/bookings/group-booking-countdown.service';
-import { WalletService } from './modules/payments/wallet.service';
-import { QueuesService } from './modules/queues/queues.service';
-import { NotificationService } from './modules/notifications/notifications.service';
-import { NotificationProcessor } from './modules/notifications/notification.processor';
-import { AnalyticsService } from './modules/analytics/analytics.service';
-import { BookingSchedulerService } from './modules/bookings/booking-scheduler.service';
+import { BookingSchedulerService }      from './modules/bookings/booking-scheduler.service';
+import { PaymentService }               from './modules/payments/payments.service';
+import { WalletService }                from './modules/payments/wallet.service';
+import { OrderService }                 from './modules/orders/orders.service';
+import { MenuService }                  from './modules/orders/menu.service';
+import { QueuesService }                from './modules/queues/queues.service';
+import { TicketsService }               from './modules/tickets/tickets.service';
+import { TablesService }                from './modules/tables/tables.service';
+import { ApartmentsService }            from './modules/apartments/apartments.service';
+import { ApartmentListingsService }     from './modules/apartments/apartments-listings.services';
+import { CarsService }                  from './modules/cars/cars.service';
+import { CarListingsService }           from './modules/cars/car-listings.service';
+import { EventsService }                from './modules/events/events.service';
+import { AuditService }                 from './modules/audit/audit.service';
+import { NotificationService }          from './modules/notifications/notifications.service';
+import { NotificationProcessor }        from './modules/notifications/notification.processor';
+import { AnalyticsService }             from './modules/analytics/analytics.service';
+import { PricingService }               from './shared/services/pricing.service';
+import { ValidationService }            from './shared/services/validation.service';
 
-// ============================================================================
-// SHARED UTILITY SERVICES
-// ============================================================================
-import { PricingService } from './shared/services/pricing.service';
-import { ValidationService } from './shared/services/validation.service';
-
-// ============================================================================
-// GUARDS
-// ============================================================================
-import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
-import { RolesGuard } from './common/guards/roles.guard';
-
-// ============================================================================
-// FILTERS & INTERCEPTORS
-// ============================================================================
+// Guards / Filters / Interceptors
+import { JwtAuthGuard }        from './common/guards/jwt-auth.guard';
+import { RolesGuard }          from './common/guards/roles.guard';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { ResponseInterceptor } from './common/interceptors/response.interceptor';
 
-// ============================================================================
-// ENTITIES
-// ============================================================================
+// Entities
 import {
-  User,
-  Booking,
-  PaymentTransaction,
-  Wallet,
-  Order,
-  AuditLog,
-  FinancialLedger,
-  Queue,
-  GroupBooking,
+  User, Booking, PaymentTransaction, Wallet, Order,
+  AuditLog, FinancialLedger, Queue, GroupBooking,
 } from './shared/entities';
 import { ApartmentListing } from './shared/entities/apartment-listing.entity';
-import { CarListing } from './shared/entities/car-listing.entity';
-import { ApartmentListingsService } from './modules/apartments/apartments-listings.services';
-import { CarListingsService } from './modules/cars/car-listings.service';
-import { ApartmentsModule } from './modules/apartments/apartments.module';
-import { CarsModule } from './modules/cars/cars.module';
-import { CarsController } from './modules/cars/cars.controller';
-import { ApartmentsController } from './modules/apartments/apartments.controller';
-import { CarsService } from './modules/cars/cars.service';
-import { ApartmentsService } from './modules/apartments/apartments.service';
-import { TicketsController } from './modules/tickets/tickets.controller';
-import { TicketsService } from './modules/tickets/tickets.service';
-import { TablesService } from './modules/tables/tables.service';
-import { TablesController } from './modules/tables/tables.controller';
+import { CarListing }       from './shared/entities/car-listing.entity';
+import { TableListing }     from './shared/entities/table-listing.entity';
+import { MenuItem }         from './shared/entities/menu-item.entity';
+import { Event }            from './shared/entities/event.entity';  
+import { DeviceToken }      from './shared/entities/device-token.entity';
 
 
 @Module({
   imports: [
-    // ========================================================================
-    // CONFIGURATION MODULES
-    // ========================================================================
-    ConfigModule.forRoot({
-      isGlobal: true,
-      envFilePath: '.env',
-    }),
+    ConfigModule.forRoot({ isGlobal: true, envFilePath: '.env' }),
 
-    // ========================================================================
-    // DATABASE & ORM
-    // ========================================================================
     TypeOrmModule.forRoot(dataSourceOptions),
     TypeOrmModule.forFeature([
-      User,
-      Booking,
-      PaymentTransaction,
-      Wallet,
-      Order,
-      AuditLog,
-      FinancialLedger,
-      Queue,
-      GroupBooking,
-      CarListing,
-      ApartmentListing
-    ]),
+      User, Booking, PaymentTransaction, Wallet, Order,
+      AuditLog, FinancialLedger, Queue, GroupBooking,
+      ApartmentListing, CarListing,
+      TableListing,
+      MenuItem,
+      Event,
+      DeviceToken,
+      ]),
 
-    // ========================================================================
-    // AUTHENTICATION & JWT
-    // ========================================================================
     PassportModule,
     JwtModule.register({
       secret: process.env.JWT_SECRET || 'your-secret-key',
-    signOptions: {
-  expiresIn: (process.env.JWT_EXPIRATION || '3600s') as StringValue,
-},
-
+      signOptions: { expiresIn: (process.env.JWT_EXPIRATION || '3600s') as StringValue },
     }),
 
-    // ========================================================================
-    // MESSAGE QUEUE & JOB PROCESSING (for notifications)
-    // ========================================================================
     BullModule.forRoot({
       redis: {
         host: process.env.REDIS_HOST || 'localhost',
         port: parseInt(process.env.REDIS_PORT ?? '6379', 10),
-
       },
     }),
-    BullModule.registerQueue({
-      name: 'notifications',
-    }),
-
-    // ========================================================================
-    // SCHEDULED TASKS & CRON JOBS
-    // ========================================================================
+    BullModule.registerQueue({ name: 'notifications' }),
     ScheduleModule.forRoot(),
   ],
 
   controllers: [
-    // ========================================================================
-    // EXISTING CONTROLLERS
-    // ========================================================================
     AuthController,
     BookingsController,
     PaymentsController,
+    PaystackWebhookController,
+    WalletController,
     OrdersController,
+    MenuController,        
     QueuesController,
+    TicketsController,
+    TablesController,
+    ApartmentsController,
+    CarsController,
+    EventsController,
+    NotificationsController,
     AdminBookingsController,
     AdminOrdersController,
     AdminStaffController,
     AdminAnalyticsController,
     AuditController,
-    CarsController,
-    ApartmentsController,
-    TicketsController,
-    TablesController,
   ],
 
   providers: [
-    // ========================================================================
-    // EXISTING CORE SERVICES
-    // ========================================================================
-    AuthService,
-    JwtStrategy,
-    BookingService,
-    PaymentService,
-    OrderService,
-    AuditService,
-    CarsService,
-    ApartmentsService,
-
-    // ========================================================================
-    // PHASE 4 - NEW BUSINESS LOGIC SERVICES
-    // ========================================================================
-    // Late Arrival & Auto-Cancellation
-    LateArrivalService,
-
-    // Group Booking Countdown & Expiration
-    GroupBookingCountdownService,
-
-    // Wallet & Balance Management
-    WalletService,
-
-    // Queue Management (Position Tracking)
+    AuthService, JwtStrategy,
+    BookingService, LateArrivalService, GroupBookingCountdownService, BookingSchedulerService,
+    PaymentService, WalletService,
+    OrderService, MenuService, 
     QueuesService,
-
-    // Notifications (Real-time & Async)
-    NotificationService,
-    NotificationProcessor,
-
-    // Analytics & Reporting
-    AnalyticsService,
-
-    // Scheduled Jobs & Cron Tasks
-    BookingSchedulerService,
-
-    // ========================================================================
-    // SHARED UTILITY SERVICES
-    // ========================================================================
-    // Pricing & Commission Calculations
-    PricingService,
-
-    // Validation & Business Rules
-    ValidationService,
-
-    // Listings services
-    ApartmentListingsService,
-    CarListingsService,
-
     TicketsService,
     TablesService,
-
-    // ========================================================================
-    // GUARDS
-    // ========================================================================
-    JwtAuthGuard,
-    RolesGuard,
-
-    // ========================================================================
-    // FILTERS & INTERCEPTORS
-    // ========================================================================
-    ResponseInterceptor,
-    HttpExceptionFilter,
+    ApartmentsService, ApartmentListingsService,
+    CarsService, CarListingsService,
+    EventsService,
+    AuditService,
+    NotificationService, NotificationProcessor,
+    AnalyticsService,
+    PricingService, ValidationService,
+    JwtAuthGuard, RolesGuard,
+    ResponseInterceptor, HttpExceptionFilter,
   ],
 })
 export class AppModule {}

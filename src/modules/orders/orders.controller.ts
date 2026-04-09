@@ -1,12 +1,6 @@
 import {
-  Controller,
-  Get,
-  Post,
-  Patch,
-  Body,
-  Param,
-  UseGuards,
-  HttpCode,
+  Controller, Get, Post, Patch,
+  Body, Param, Query, UseGuards, HttpCode,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
@@ -24,8 +18,9 @@ import { UserRole } from '../../shared/enums';
 export class OrdersController {
   constructor(private orderService: OrderService) {}
 
+  // POST /orders
   @Post()
-  @Roles(UserRole.CUSTOMER)
+  @Roles(UserRole.CUSTOMER, UserRole.WAITER)
   @HttpCode(201)
   async createOrder(
     @Body() body: any,
@@ -35,18 +30,36 @@ export class OrdersController {
     return this.orderService.createOrder(body.bookingId, user.id, body.items, ipAddress);
   }
 
+  // GET /orders/my — must be BEFORE :id
+  @Get('my')
+  @Roles(UserRole.CUSTOMER)
+  async getMyOrders(
+    @CurrentUser() user: any,
+    @Query('limit') limit?: string,
+    @Query('offset') offset?: string,
+  ) {
+    return this.orderService.getOrdersByUser(
+      user.id,
+      limit  ? Number(limit)  : 20,
+      offset ? Number(offset) : 0,
+    );
+  }
+
+  // GET /orders/booking/:bookingId — must be BEFORE :id
   @Get('booking/:bookingId')
   @Roles(UserRole.CUSTOMER, UserRole.WAITER, UserRole.MANAGER)
   async getOrdersByBooking(@Param('bookingId') bookingId: string) {
     return this.orderService.getOrdersByBooking(bookingId);
   }
 
+  // GET /orders/:id
   @Get(':id')
-  @Roles(UserRole.CUSTOMER, UserRole.WAITER, UserRole.MANAGER)
+  @Roles(UserRole.CUSTOMER, UserRole.WAITER, UserRole.KITCHEN_STAFF, UserRole.BAR_STAFF, UserRole.MANAGER)
   async getOrder(@Param('id') orderId: string) {
-    return { orderId };
+    return this.orderService.getOrder(orderId);
   }
 
+  // PATCH /orders/:id/status
   @Patch(':id/status')
   @Roles(UserRole.WAITER, UserRole.KITCHEN_STAFF, UserRole.BAR_STAFF, UserRole.MANAGER)
   @HttpCode(200)
@@ -59,6 +72,7 @@ export class OrdersController {
     return this.orderService.updateOrderStatus(orderId, body.status as any, user.id, ipAddress);
   }
 
+  // POST /orders/:id/assign
   @Post(':id/assign')
   @Roles(UserRole.MANAGER, UserRole.ADMIN)
   @HttpCode(200)

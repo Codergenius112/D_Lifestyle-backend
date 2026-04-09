@@ -3,6 +3,10 @@ import { User } from '../../shared/entities/user.entity';
 import { Wallet } from '../../shared/entities/wallet.entity';
 import { ApartmentListing } from '../../shared/entities/apartment-listing.entity';
 import { CarListing } from '../../shared/entities/car-listing.entity';
+import { TableListing } from '../../shared/entities/table-listing.entity';
+import { Event }        from '../../shared/entities/event.entity';
+import { MenuItem, MenuCategory } from '../../shared/entities/menu-item.entity';
+import { TableCategory } from '../../shared/enums';
 import * as bcrypt from 'bcryptjs';
 
 async function seed() {
@@ -12,12 +16,15 @@ async function seed() {
     await connection.initialize();
   }
 
-  const userRepository = connection.getRepository(User);
-  const walletRepository = connection.getRepository(Wallet);
+  const userRepository      = connection.getRepository(User);
+  const walletRepository    = connection.getRepository(Wallet);
   const apartmentRepository = connection.getRepository(ApartmentListing);
-  const carRepository = connection.getRepository(CarListing);
+  const carRepository       = connection.getRepository(CarListing);
+  const tableRepository     = connection.getRepository(TableListing);
+  const menuRepository      = connection.getRepository(MenuItem);
+  const eventRepository     = connection.getRepository(Event);
 
-  console.log(' Seeding database...');
+  console.log('🌱 Seeding database...');
 
   // ── USERS ──────────────────────────────────────────────────────────────────
   const testUsers = [
@@ -72,26 +79,26 @@ async function seed() {
       const hashedPassword = await bcrypt.hash(userData.password, 10);
 
       const user = new User();
-      user.email = userData.email;
+      user.email        = userData.email;
       user.passwordHash = hashedPassword;
-      user.firstName = userData.firstName;
-      user.lastName = userData.lastName;
-      user.phone = userData.phone;
-      user.role = userData.role as any;
+      user.firstName    = userData.firstName;
+      user.lastName     = userData.lastName;
+      user.phone        = userData.phone;
+      user.role         = userData.role as any;
 
       const savedUser = await userRepository.save(user);
 
       // Create wallet for user
       const wallet = new Wallet();
-      wallet.userId = savedUser.id;
+      wallet.userId  = savedUser.id;
       wallet.balance = userData.role === 'customer' ? 10000 : 0;
       await walletRepository.save(wallet);
 
-      console.log(` Created user: ${userData.email} (${userData.role})`);
+      console.log(`✓ Created user: ${userData.email} (${userData.role})`);
     }
   }
 
-  // ── APARTMENT LISTINGS ────────────────────────────────────────────────────
+  // ── APARTMENT LISTINGS ─────────────────────────────────────────────────────
   const existingApartments = await apartmentRepository.count();
   if (existingApartments === 0) {
     const apartments = [
@@ -165,7 +172,7 @@ async function seed() {
     console.log('⏭  Apartment listings already seeded, skipping.');
   }
 
-  // ── CAR LISTINGS ──────────────────────────────────────────────────────────
+  // ── CAR LISTINGS ───────────────────────────────────────────────────────────
   const existingCars = await carRepository.count();
   if (existingCars === 0) {
     const cars = [
@@ -253,6 +260,153 @@ async function seed() {
     }
   } else {
     console.log('⏭  Car listings already seeded, skipping.');
+  }
+
+  // ── TABLE LISTINGS ─────────────────────────────────────────────────────────
+  const existingTables = await tableRepository.count();
+  if (existingTables === 0) {
+    const venues = [
+      { venueId: 'venue-skylounge' },
+      { venueId: 'venue-opulence'  },
+    ];
+
+    const tableTemplates = [
+      { name: 'Standard Table T1', category: TableCategory.STANDARD, capacity: 2,  price: 15000,  description: 'Intimate 2-seater near the bar',                        features: ['Bar Access', 'Table Service'] },
+      { name: 'Standard Table T2', category: TableCategory.STANDARD, capacity: 4,  price: 25000,  description: 'Central 4-seater with dance floor view',                features: ['Dance Floor View', 'Table Service'] },
+      { name: 'Standard Table T3', category: TableCategory.STANDARD, capacity: 4,  price: 25000,  description: 'Cozy corner 4-seater',                                   features: ['Corner Position', 'Table Service'] },
+      { name: 'Standard Table T4', category: TableCategory.STANDARD, capacity: 6,  price: 35000,  description: 'Large standard table for groups',                        features: ['Group Table', 'Table Service'] },
+      { name: 'VIP Table 1',       category: TableCategory.VIP,      capacity: 6,  price: 75000,  description: 'Prime VIP with stage view and dedicated waitress',       features: ['Stage View', 'Dedicated Waitress', 'Bottle Service', 'Priority Entry'] },
+      { name: 'VIP Table 2',       category: TableCategory.VIP,      capacity: 6,  price: 75000,  description: 'VIP elevated section with full venue view',              features: ['Elevated Section', 'Dedicated Waitress', 'Bottle Service', 'Priority Entry'] },
+      { name: 'VIP Table 3',       category: TableCategory.VIP,      capacity: 8,  price: 95000,  description: 'Large VIP table for group celebrations',                 features: ['Large Group', 'Dedicated Waitress', 'Bottle Service', 'Cake Service'] },
+      { name: 'VVIP Booth A',      category: TableCategory.VVIP,     capacity: 10, price: 200000, description: 'Front-centre stage, private section with personal host',  features: ['Centre Stage', 'Private Section', 'Personal Host', 'Unlimited Bottles', 'VIP Entry'] },
+      { name: 'VVIP Booth B',      category: TableCategory.VVIP,     capacity: 8,  price: 150000, description: 'Premium booth with panoramic venue view',                features: ['Private Booth', 'Panoramic View', 'Personal Host', 'Bottle Service', 'VIP Entry'] },
+    ];
+
+    for (const venue of venues) {
+      for (const t of tableTemplates) {
+        const listing = tableRepository.create({ ...t, venueId: venue.venueId, isActive: true });
+        await tableRepository.save(listing);
+      }
+      console.log(`✓ Seeded ${tableTemplates.length} tables for venue: ${venue.venueId}`);
+    }
+  } else {
+    console.log('⏭  Table listings already seeded, skipping.');
+  }
+
+  // ── MENU ITEMS ─────────────────────────────────────────────────────────────
+  const existingMenuItems = await menuRepository.count();
+  if (existingMenuItems === 0) {
+    const venues = [
+      { venueId: 'venue-skylounge' },
+      { venueId: 'venue-opulence'  },
+    ];
+
+    const menuTemplates = [
+      // FOOD
+      { name: 'Asun (Peppered Goat)',     category: MenuCategory.FOOD,      price: 8500,   description: 'Spicy peppered goat meat, sliced and grilled',      sortOrder: 1 },
+      { name: 'Catfish Peppersoup',       category: MenuCategory.FOOD,      price: 7000,   description: 'Spicy catfish pepper soup with yam',                sortOrder: 2 },
+      { name: 'Suya Platter',            category: MenuCategory.FOOD,      price: 6000,   description: 'Skewered spiced beef with onions and tomatoes',      sortOrder: 3 },
+      { name: 'Peppered Chicken Wings',  category: MenuCategory.FOOD,      price: 7500,   description: '6 pcs crispy wings in house pepper sauce',           sortOrder: 4 },
+      { name: 'Club Sandwich',           category: MenuCategory.FOOD,      price: 5500,   description: 'Triple-decker with chicken, bacon, egg',             sortOrder: 5 },
+      { name: 'Grilled Tilapia',         category: MenuCategory.FOOD,      price: 9000,   description: 'Whole tilapia grilled with peppers and spices',      sortOrder: 6 },
+      // DRINKS
+      { name: 'Hennessy VS (Glass)',     category: MenuCategory.DRINKS,    price: 4500,   description: 'Single serve',                                       sortOrder: 1 },
+      { name: 'Ciroc Vodka (Glass)',     category: MenuCategory.DRINKS,    price: 4000,   description: 'Single serve with mixer',                            sortOrder: 2 },
+      { name: 'Guinness Stout',          category: MenuCategory.DRINKS,    price: 1500,   description: '60cl bottle',                                        sortOrder: 3 },
+      { name: 'Star Lager',              category: MenuCategory.DRINKS,    price: 1200,   description: '60cl bottle',                                        sortOrder: 4 },
+      { name: 'Moet & Chandon (Glass)',  category: MenuCategory.DRINKS,    price: 5000,   description: 'NV Brut, single flute',                              sortOrder: 5 },
+      { name: 'Still Water (75cl)',      category: MenuCategory.DRINKS,    price: 500,    description: '75cl bottle',                                        sortOrder: 6 },
+      // COCKTAILS
+      { name: 'Lagos Sunrise',           category: MenuCategory.COCKTAILS, price: 5500,   description: 'Vodka, grenadine, orange juice, lime',               sortOrder: 1 },
+      { name: 'Afrobeats Sour',          category: MenuCategory.COCKTAILS, price: 5500,   description: 'Whisky, passion fruit, lemon, egg white',            sortOrder: 2 },
+      { name: 'Naija Mule',              category: MenuCategory.COCKTAILS, price: 5000,   description: 'Rum, ginger beer, lime, mint',                       sortOrder: 3 },
+      { name: 'Mojito',                  category: MenuCategory.COCKTAILS, price: 5000,   description: 'White rum, mint, lime, soda',                        sortOrder: 4 },
+      { name: 'Long Island Iced Tea',    category: MenuCategory.COCKTAILS, price: 6000,   description: 'Vodka, gin, rum, tequila, triple sec, cola',         sortOrder: 5 },
+      // BOTTLES
+      { name: 'Hennessy VS (Bottle)',    category: MenuCategory.BOTTLES,   price: 55000,  description: '700ml, served with mixers and ice',                  sortOrder: 1 },
+      { name: 'Hennessy VSOP (Bottle)',  category: MenuCategory.BOTTLES,   price: 85000,  description: '700ml, premium serve',                               sortOrder: 2 },
+      { name: 'Ciroc Vodka (Bottle)',    category: MenuCategory.BOTTLES,   price: 48000,  description: '700ml, served with cranberry and tonic',             sortOrder: 3 },
+      { name: 'Ace of Spades',           category: MenuCategory.BOTTLES,   price: 250000, description: 'Armand de Brignac Brut Gold, 750ml',                 sortOrder: 4 },
+      { name: 'Moet & Chandon (Bottle)', category: MenuCategory.BOTTLES,   price: 45000,  description: 'NV Brut Imperial, 750ml',                            sortOrder: 5 },
+      { name: 'Dom Perignon',            category: MenuCategory.BOTTLES,   price: 180000, description: '750ml, vintage',                                     sortOrder: 6 },
+      // DESSERTS
+      { name: 'Chocolate Lava Cake',     category: MenuCategory.DESSERTS,  price: 4500,   description: 'Warm chocolate cake, vanilla ice cream',             sortOrder: 1 },
+      { name: 'Puff Puff (6 pcs)',       category: MenuCategory.DESSERTS,  price: 2500,   description: 'Nigerian fried dough, cinnamon sugar',               sortOrder: 2 },
+      { name: 'Chin Chin Platter',       category: MenuCategory.DESSERTS,  price: 2000,   description: 'Crunchy fried pastry snack',                         sortOrder: 3 },
+    ];
+
+    for (const venue of venues) {
+      for (const item of menuTemplates) {
+        const menuItem = menuRepository.create({ ...item, venueId: venue.venueId, isAvailable: true });
+        await menuRepository.save(menuItem);
+      }
+      console.log(`✓ Seeded ${menuTemplates.length} menu items for venue: ${venue.venueId}`);
+    }
+  } else {
+    console.log('⏭  Menu items already seeded, skipping.');
+  }
+
+
+  // ── EVENTS ────────────────────────────────────────────────────────────────────
+  const existingEvents = await eventRepository.count();
+  if (existingEvents === 0) {
+    const now = new Date();
+
+    const events = [
+      {
+        name:        'Afrobeats Night Lagos',
+        description: 'The biggest Afrobeats party in Lagos. Expect top DJs, premium bottle service, and an electric atmosphere that will keep you dancing till dawn. Dress to impress — smart casual required.',
+        venueId:     'venue-skylounge',
+        venueName:   'Sky Lounge Lagos',
+        startDate:   new Date(now.getFullYear(), now.getMonth(), now.getDate() + 7, 22, 0, 0),
+        endDate:     new Date(now.getFullYear(), now.getMonth(), now.getDate() + 8, 4, 0, 0),
+        capacity:    500,
+        djs:         ['DJ Neptune', 'Spinall', 'DJ Consequence'],
+        genre:       'Afrobeats',
+        dresscode:   'Smart Casual',
+        status:      'active',
+        images:      [],
+        ticketPrice: 10000,
+      },
+      {
+        name:        'Opulence Gala Night',
+        description: 'An exclusive black-tie evening at Opulence Club VI. Limited tickets available. VIP table packages include champagne on arrival, curated 5-course dinner, and live saxophone performance.',
+        venueId:     'venue-opulence',
+        venueName:   'Opulence Club VI',
+        startDate:   new Date(now.getFullYear(), now.getMonth(), now.getDate() + 14, 20, 0, 0),
+        endDate:     new Date(now.getFullYear(), now.getMonth(), now.getDate() + 15, 2, 0, 0),
+        capacity:    200,
+        djs:         ['DJ Jimmy Jatt', 'Teni'],
+        genre:       'Afro Soul',
+        dresscode:   'Black Tie',
+        status:      'active',
+        images:      [],
+        ticketPrice: 25000,
+      },
+      {
+        name:        'Sky High Fridays',
+        description: 'The weekly Friday night experience at Sky Lounge. Rooftop views of Lagos, world-class cocktails, and a rotating lineup of the hottest DJs in the city. Walk-ins welcome before 10pm.',
+        venueId:     'venue-skylounge',
+        venueName:   'Sky Lounge Lagos',
+        startDate:   new Date(now.getFullYear(), now.getMonth(), now.getDate() + 3, 21, 0, 0),
+        endDate:     new Date(now.getFullYear(), now.getMonth(), now.getDate() + 4, 3, 0, 0),
+        capacity:    350,
+        djs:         ['DJ Tunez', 'DJ Obi'],
+        genre:       'Afropop / House',
+        dresscode:   'Casual Chic',
+        status:      'active',
+        images:      [],
+        ticketPrice: 5000,
+      },
+    ];
+
+    for (const data of events) {
+      const event = eventRepository.create(data);
+      await eventRepository.save(event);
+      console.log(` Created event: ${data.name}`);
+    }
+  } else {
+    console.log('  Events already seeded, skipping.');
   }
 
   console.log(' Database seeding completed!');

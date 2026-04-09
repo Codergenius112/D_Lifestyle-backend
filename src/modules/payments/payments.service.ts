@@ -69,6 +69,7 @@ export class PaymentService {
     amount: number,
     method: 'wallet' | 'paystack',
     ipAddress: string,
+    paystackReference?: string,
   ): Promise<PaymentTransaction> {
     let savedPayment!: PaymentTransaction;
 
@@ -114,6 +115,7 @@ export class PaymentService {
           paymentMethod: method,
           status: PaymentStatus.PARTIALLY_PAID,
           completedAt: new Date(),
+          ...(paystackReference ? { externalRefId: paystackReference } : {})
         });
 
         savedPayment = await manager.save(payment);

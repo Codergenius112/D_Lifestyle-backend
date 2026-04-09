@@ -6,6 +6,7 @@ import { Wallet } from '../../shared/entities/wallet.entity';
 import { FinancialLedger } from '../../shared/entities/financial-ledger.entity';
 import { PaymentService } from './payments.service';
 import { PaymentsController } from './payments.controller';
+import { PaystackWebhookController } from './paystack-webhook.controller';
 import { AuditModule } from '../audit/audit.module';
 
 @Module({
@@ -14,7 +15,7 @@ import { AuditModule } from '../audit/audit.module';
     AuditModule,
   ],
   providers: [PaymentService],
-  controllers: [PaymentsController],
+  controllers: [PaymentsController, PaystackWebhookController],
   exports: [PaymentService],
 })
 export class PaymentsModule {}

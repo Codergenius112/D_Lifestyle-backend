@@ -29,6 +29,7 @@ export class PaymentsController {
       body.amount,
       body.method,
       ipAddress,
+      body.paystackReference,
     );
   }
 
