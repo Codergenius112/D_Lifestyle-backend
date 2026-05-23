@@ -1,0 +1,65 @@
+const ECS_TASK_DEFINITION = {
+  family: 'dlifestyle-backend',
+  networkMode: 'awsvpc',
+  requiresCompatibilities: ['FARGATE'],
+  cpu: '512',
+  memory: '1024',
+  containerDefinitions: [
+    {
+      name: 'dlifestyle-app',
+      image: '{AWS_ACCOUNT_ID}.dkr.ecr.{AWS_REGION}.amazonaws.com/dlifestyle-backend:latest',
+      portMappings: [
+        {
+          containerPort: 3000,
+          hostPort: 3000,
+          protocol: 'tcp',
+        },
+      ],
+      environment: [
+        { name: 'NODE_ENV', value: 'production' },
+        { name: 'DATABASE_HOST', value: '{RDS_ENDPOINT}' },
+        { name: 'DATABASE_PORT', value: '5432' },
+        { name: 'DATABASE_NAME', value: 'dlifestyle_db' },
+        { name: 'REDIS_HOST', value: '{REDIS_ENDPOINT}' },
+        { name: 'REDIS_PORT', value: '6379' },
+        { name: 'APP_PORT', value: '3000' },
+        { name: 'LOG_LEVEL', value: 'info' },
+      ],
+      secrets: [
+        {
+          name: 'DATABASE_USER',
+          valueFrom: 'arn:aws:secretsmanager:{REGION}:{ACCOUNT}:secret:db-user',
+        },
+        {
+          name: 'DATABASE_PASSWORD',
+          valueFrom: 'arn:aws:secretsmanager:{REGION}:{ACCOUNT}:secret:db-password',
+        },
+        {
+          name: 'JWT_SECRET',
+          valueFrom: 'arn:aws:secretsmanager:{REGION}:{ACCOUNT}:secret:jwt-secret',
+        },
+        {
+          name: 'PAYSTACK_SECRET_KEY',
+          valueFrom: 'arn:aws:secretsmanager:{REGION}:{ACCOUNT}:secret:paystack-key',
+        },
+      ],
+      logConfiguration: {
+        logDriver: 'awslogs',
+        options: {
+          'awslogs-group': '/ecs/dlifestyle-backend',
+          'awslogs-region': '{AWS_REGION}',
+          'awslogs-stream-prefix': 'ecs',
+        },
+      },
+      healthCheck: {
+        command: ['CMD-SHELL', 'curl -f http://localhost:3000/health || exit 1'],
+        interval: 30,
+        timeout: 5,
+        retries: 3,
+        startPeriod: 60,
+      },
+    },
+  ],
+  executionRoleArn: 'arn:aws:iam::{ACCOUNT}:role/ecsTaskExecutionRole',
+  taskRoleArn: 'arn:aws:iam::{ACCOUNT}:role/ecsTaskRole',
+};

@@ -1,0 +1,140 @@
+const CLOUDFORMATION_TEMPLATE = `
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'D''Lifestyle Backend Infrastructure'
+
+Parameters:
+  Environment:
+    Type: String
+    Default: production
+    AllowedValues: [development, staging, production]
+  
+  DBInstanceClass:
+    Type: String
+    Default: db.t3.micro
+  
+  ECSDesiredCount:
+    Type: Number
+    Default: 2
+
+Resources:
+  # VPC
+  DLifestyleVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      Tags:
+        - Key: Name
+          Value: dlifestyle-vpc
+
+  # Public Subnet
+  PublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref DLifestyleVPC
+      CidrBlock: 10.0.1.0/24
+      AvailabilityZone: !Select [0, !GetAZs '']
+      MapPublicIpOnLaunch: true
+
+  # RDS PostgreSQL
+  DLifestyleDatabase:
+    Type: AWS::RDS::DBInstance
+    DeletionPolicy: Snapshot
+    Properties:
+      DBInstanceIdentifier: dlifestyle-db
+      Engine: postgres
+      EngineVersion: '15.1'
+      DBInstanceClass: !Ref DBInstanceClass
+      AllocatedStorage: 20
+      StorageType: gp2
+      DBName: dlifestyle_db
+      MasterUsername: !Sub '{{{{resolve:secretsmanager:db-user:SecretString:username}}}}'
+      MasterUserPassword: !Sub '{{{{resolve:secretsmanager:db-password:SecretString:password}}}}'
+      VpcSecurityGroupIds:
+        - !Ref DBSecurityGroup
+      BackupRetentionPeriod: 30
+      PreferredBackupWindow: '03:00-04:00'
+      PreferredMaintenanceWindow: 'mon:04:00-mon:05:00'
+      EnableIAMDatabaseAuthentication: true
+      EnableCloudwatchLogsExports:
+        - postgresql
+      Tags:
+        - Key: Name
+          Value: dlifestyle-postgres
+
+  # RDS Security Group
+  DBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for RDS PostgreSQL
+      VpcId: !Ref DLifestyleVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          CidrIp: 10.0.0.0/16
+
+  # ElastiCache Redis
+  DLifestyleCache:
+    Type: AWS::ElastiCache::CacheCluster
+    Properties:
+      CacheNodeType: cache.t3.micro
+      Engine: redis
+      EngineVersion: '7.0'
+      NumCacheNodes: 1
+      Port: 6379
+      VpcSecurityGroupIds:
+        - !Ref CacheSecurityGroup
+      Tags:
+        - Key: Name
+          Value: dlifestyle-redis
+
+  # Cache Security Group
+  CacheSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for ElastiCache
+      VpcId: !Ref DLifestyleVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 6379
+          ToPort: 6379
+          CidrIp: 10.0.0.0/16
+
+  # CloudWatch Log Group
+  ECSLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /ecs/dlifestyle-backend
+      RetentionInDays: 30
+
+  # S3 Bucket for uploads
+  DLifestyleS3Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: dlifestyle-uploads-{ACCOUNT}-{REGION}
+      VersioningConfiguration:
+        Status: Enabled
+      LifecycleConfiguration:
+        Rules:
+          - Id: DeleteOldVersions
+            Status: Enabled
+            NoncurrentVersionExpiration:
+              NoncurrentDays: 90
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+Outputs:
+  DatabaseEndpoint:
+    Value: !GetAtt DLifestyleDatabase.Endpoint.Address
+  
+  CacheEndpoint:
+    Value: !GetAtt DLifestyleCache.RedisEndpoint.Address
+  
+  S3BucketName:
+    Value: !Ref DLifestyleS3Bucket
+`;

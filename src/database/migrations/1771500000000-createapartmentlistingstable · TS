@@ -1,0 +1,42 @@
+import { MigrationInterface, QueryRunner } from 'typeorm';
+
+export class CreateApartmentListingsTable1771500000000 implements MigrationInterface {
+  name = 'CreateApartmentListingsTable1771500000000';
+
+  public async up(queryRunner: QueryRunner): Promise<void> {
+    await queryRunner.query(`
+      CREATE TABLE "apartment_listings" (
+        "id"           uuid          NOT NULL DEFAULT uuid_generate_v4(),
+        "name"         varchar(200)  NOT NULL,
+        "description"  text          NOT NULL,
+        "address"      varchar(255)  NOT NULL,
+        "city"         varchar(100)  NOT NULL,
+        "state"        varchar(100)  NOT NULL,
+        "pricePerNight" numeric(12,2) NOT NULL,
+        "bedrooms"     integer       NOT NULL,
+        "bathrooms"    integer       NOT NULL,
+        "maxGuests"    integer       NOT NULL,
+        "amenities"    jsonb         NOT NULL DEFAULT '[]',
+        "images"       jsonb         NOT NULL DEFAULT '[]',
+        "isActive"     boolean       NOT NULL DEFAULT true,
+        "managedBy"    uuid,
+        "createdAt"    TIMESTAMP     NOT NULL DEFAULT now(),
+        "updatedAt"    TIMESTAMP     NOT NULL DEFAULT now(),
+        CONSTRAINT "PK_apartment_listings" PRIMARY KEY ("id")
+      )
+    `);
+
+    await queryRunner.query(`
+      CREATE INDEX "idx_apartment_listings_active" ON "apartment_listings" ("isActive")
+    `);
+    await queryRunner.query(`
+      CREATE INDEX "idx_apartment_listings_city" ON "apartment_listings" ("city")
+    `);
+  }
+
+  public async down(queryRunner: QueryRunner): Promise<void> {
+    await queryRunner.query(`DROP INDEX "idx_apartment_listings_city"`);
+    await queryRunner.query(`DROP INDEX "idx_apartment_listings_active"`);
+    await queryRunner.query(`DROP TABLE "apartment_listings"`);
+  }
+}
