@@ -4,6 +4,7 @@
   "description": "Production-ready backend for D'Lifestyle platform",
   "author": "D'Lifestyle Team",
   "license": "MIT",
+  "engines": { "node": ">=20" },
   "main": "dist/main.js",
   "scripts": {
     "start": "node dist/main",
