@@ -56,12 +56,8 @@ import { ResponseInterceptor } from './common/interceptors/response.interceptor'
 
     // ── Queues ────────────────────────────────────────────────────────────────
     BullModule.forRoot({
-      redis: {
-        host: process.env.REDIS_HOST || 'localhost',
-        port: parseInt(process.env.REDIS_PORT ?? '6379', 10),
-        password: process.env.REDIS_PASSWORD,
-      },
-    }),
+  redis: process.env.REDIS_URL,
+}),
 
     // ── Scheduler ─────────────────────────────────────────────────────────────
     ScheduleModule.forRoot(),
