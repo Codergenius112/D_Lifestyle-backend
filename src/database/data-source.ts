@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import { DataSource, DataSourceOptions } from 'typeorm';
 import { User }               from '../shared/entities/user.entity';
 import { Booking }            from '../shared/entities/booking.entity';
