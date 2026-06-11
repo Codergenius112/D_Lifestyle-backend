@@ -1,12 +1,7 @@
 import {
-  Entity,
-  PrimaryGeneratedColumn,
-  Column,
-  CreateDateColumn,
-  UpdateDateColumn,
-  ManyToOne,
-  OneToMany,
-  Index,
+  Entity, PrimaryGeneratedColumn, Column,
+  CreateDateColumn, UpdateDateColumn,
+  ManyToOne, OneToMany, Index,
 } from 'typeorm';
 import { BookingStatus, BookingType, PaymentStatus } from '../enums';
 import { User } from './user.entity';
@@ -31,10 +26,10 @@ export class Booking {
   user: User;
 
   @Column({ type: 'uuid', nullable: true })
-  groupId: string; // For group bookings
+  groupId: string;
 
   @Column({ type: 'uuid' })
-  resourceId: string; // ticket, table, apartment, or car ID
+  resourceId: string;
 
   @Column({ type: 'enum', enum: BookingStatus, default: BookingStatus.INITIATED })
   status: BookingStatus;
@@ -58,7 +53,30 @@ export class Booking {
   paymentStatus: PaymentStatus;
 
   @Column({ type: 'varchar', length: 50, nullable: true })
-  paymentMethod: string; // 'wallet', 'paystack', 'external'
+  paymentMethod: string;
+
+  // ← NEW: QR code fields
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  qrCodeData: string | null;
+
+  @Column({ type: 'timestamp', nullable: true })
+  scannedAt: Date | null;
+
+  @Column({ type: 'uuid', nullable: true })
+  scannedBy: string | null;
+
+  // ← NEW: Caution fee fields
+  @Column({ type: 'varchar', length: 20, default: 'HELD' })
+  cautionFeeStatus: 'HELD' | 'REFUNDED' | 'FORFEITED';
+
+  @Column({ type: 'decimal', precision: 10, scale: 2, default: 0 })
+  cautionFeeAmount: number;
+
+  @Column({ type: 'timestamp', nullable: true })
+  cautionFeeResolvedAt: Date | null;
+
+  @Column({ type: 'uuid', nullable: true })
+  cautionFeeResolvedBy: string | null;
 
   @Column({ type: 'timestamp', nullable: true })
   checkInTime: Date;
@@ -70,7 +88,10 @@ export class Booking {
   cancelledAt: Date;
 
   @Column({ type: 'timestamp', nullable: true })
-  expiresAt: Date; // For pending group bookings countdown
+  expiresAt: Date;
+
+  @Column({ type: 'boolean', default: false }) // ← NEW
+  isDeleted: boolean;
 
   @Column({ type: 'jsonb', nullable: true })
   metadata: Record<string, any>;
@@ -81,7 +102,6 @@ export class Booking {
   @UpdateDateColumn()
   updatedAt: Date;
 
-  // Relations
   @OneToMany(() => PaymentTransaction, (payment) => payment.booking)
   payments: PaymentTransaction[];
 }

@@ -1,135 +1,131 @@
 import {
-  Controller, Get, Post, Patch, Body,
+  Controller, Get, Patch, Body,
   Param, Query, UseGuards, HttpCode,
 } from '@nestjs/common';
-import { ApiTags, ApiBearerAuth, ApiOperation, ApiQuery } from '@nestjs/swagger';
-import { JwtAuthGuard }      from '../../common/guards/jwt-auth.guard';
-import { SuperAdminGuard }   from '../../common/guards/super-admin.guard';
-import { CurrentUser }       from '../../common/decorators/current-user.decorator';
-import { IpAddress }         from '../../common/decorators/ip-address.decorator';
-import { SuperAdminService } from './super-admin.service';
-import { BookingStatus, AuditActionType } from '../../shared/enums';
+import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
+import { JwtAuthGuard }            from '../../common/guards/jwt-auth.guard';
+import { SuperAdminGuard }         from '../../common/guards/super-admin.guard';
+import { CurrentUser }             from '../../common/decorators/current-user.decorator';
+import { IpAddress }               from '../../common/decorators/ip-address.decorator';
+import { SuperAdminService }       from './super-admin.service';
+import { PlatformSettingsService } from '../platform-settings/platform-settings.service';
+import { BusinessScope }           from '../../shared/enums';
+import { IsArray, IsEnum, IsOptional, IsNumber, Min, Max } from 'class-validator';
+
+class UpdateScopesDto {
+  @IsArray() @IsEnum(BusinessScope, { each: true })
+  scopes: BusinessScope[];
+}
+
+class UpdatePlatformSettingsDto {
+  @IsOptional() @IsNumber() @Min(0) serviceCharge?: number;
+  @IsOptional() @IsNumber() @Min(0) @Max(1) commissionRate?: number;
+  @IsOptional() @IsNumber() @Min(0) pushNotificationFee?: number;
+}
 
 @ApiTags('Super Admin')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard, SuperAdminGuard)  // Every route here requires SUPER_ADMIN
+@UseGuards(JwtAuthGuard, SuperAdminGuard)
 @Controller('super-admin')
 export class SuperAdminController {
-  constructor(private superAdminService: SuperAdminService) {}
+  constructor(
+    private superAdminService: SuperAdminService,
+    private platformSettingsService: PlatformSettingsService,
+  ) {}
 
   // ─── Platform Settings ────────────────────────────────────────────────────
-
   @Get('settings')
-  @ApiOperation({ summary: 'Get current platform settings (service charge, commission)' })
+  @ApiOperation({ summary: 'Get platform settings' })
   getSettings() {
-    return this.superAdminService.getPlatformSettings();
+    return this.platformSettingsService.getSettings();
   }
 
-  @Patch('settings/service-charge')
+  @Patch('settings')
   @HttpCode(200)
-  @ApiOperation({ summary: 'Update platform service charge (₦) — affects new bookings only' })
-  async updateServiceCharge(
-    @Body() body: { amount: number },
+  @ApiOperation({ summary: 'Update platform settings (unified)' })
+  updateSettings(
+    @Body() dto: UpdatePlatformSettingsDto,
     @CurrentUser() user: any,
-    @IpAddress() ipAddress: string,
+    @IpAddress() ip: string,
   ) {
-    return this.superAdminService.updateServiceCharge(body.amount, user.id, ipAddress);
+    return this.platformSettingsService.updateSettings(dto, user.id, ip);
   }
 
-  @Patch('settings/commission-rate')
+  // ─── Users ────────────────────────────────────────────────────────────────
+  @Get('users')
+  @ApiOperation({ summary: 'List all platform users (paginated)' })
+  listUsers(
+    @Query('limit') limit = '50',
+    @Query('offset') offset = '0',
+    @Query('role') role?: string,
+    @Query('search') search?: string,
+  ) {
+    return this.superAdminService.listAllUsers({
+      limit: +limit, offset: +offset, role: role as any, search,
+    });
+  }
+
+  @Patch('users/:id/scopes')
   @HttpCode(200)
-  @ApiOperation({ summary: 'Update platform commission rate (%) — affects new bookings only' })
-  async updateCommissionRate(
-    @Body() body: { rate: number },
+  @ApiOperation({ summary: 'Assign/update business scopes for a user' })
+  updateUserScopes(
+    @Param('id') userId: string,
+    @Body() dto: UpdateScopesDto,
     @CurrentUser() user: any,
-    @IpAddress() ipAddress: string,
+    @IpAddress() ip: string,
   ) {
-    return this.superAdminService.updateCommissionRate(body.rate, user.id, ipAddress);
+    return this.superAdminService.updateUserScopes(userId, dto.scopes, user.id, ip);
   }
-
-  // ─── User / Role Management ───────────────────────────────────────────────
 
   @Patch('users/:id/promote')
   @HttpCode(200)
   @ApiOperation({ summary: 'Promote a user to ADMIN role' })
-  async promoteToAdmin(
+  promoteToAdmin(
     @Param('id') userId: string,
     @CurrentUser() user: any,
-    @IpAddress() ipAddress: string,
+    @IpAddress() ip: string,
   ) {
-    return this.superAdminService.promoteToAdmin(userId, user.id, ipAddress);
+    return this.superAdminService.promoteToAdmin(userId, user.id, ip);
   }
 
   @Patch('users/:id/demote')
   @HttpCode(200)
-  @ApiOperation({ summary: 'Demote an ADMIN back to MANAGER' })
-  async demoteAdmin(
+  @ApiOperation({ summary: 'Demote an admin to CUSTOMER' })
+  demoteAdmin(
     @Param('id') userId: string,
     @CurrentUser() user: any,
-    @IpAddress() ipAddress: string,
+    @IpAddress() ip: string,
   ) {
-    return this.superAdminService.demoteAdmin(userId, user.id, ipAddress);
+    return this.superAdminService.demoteAdmin(userId, user.id, ip);
   }
 
-  @Get('users/stats')
-  @ApiOperation({ summary: 'Get platform-wide user statistics' })
-  async getUserStats() {
-    return this.superAdminService.getUserStats();
-  }
-
-  // ─── Booking Override ─────────────────────────────────────────────────────
-
-  @Patch('bookings/:id/override')
-  @HttpCode(200)
-  @ApiOperation({ summary: 'Override any booking status (SUPER_ADMIN only)' })
-  async overrideBooking(
-    @Param('id') bookingId: string,
-    @Body() body: { status: BookingStatus; reason: string },
-    @CurrentUser() user: any,
-    @IpAddress() ipAddress: string,
+  // ─── Financials & Audit ───────────────────────────────────────────────────
+  @Get('financials')
+  @ApiOperation({ summary: 'Get platform financial aggregates' })
+  getFinancials(
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
   ) {
-    return this.superAdminService.overrideBookingStatus(
-      bookingId, body.status, body.reason, user.id, ipAddress,
+    return this.superAdminService.getPlatformFinancials(
+      startDate ? new Date(startDate) : undefined,
+      endDate   ? new Date(endDate)   : undefined,
     );
   }
-
-  // ─── Financial Overview ───────────────────────────────────────────────────
-
-  @Get('financials')
-  @ApiOperation({ summary: 'Full platform financial overview' })
-  @ApiQuery({ name: 'startDate', required: false, example: '2026-01-01' })
-  @ApiQuery({ name: 'endDate',   required: false, example: '2026-12-31' })
-  async getFinancials(
-    @Query('startDate') startDate?: string,
-    @Query('endDate')   endDate?: string,
-  ) {
-    const start = startDate ? new Date(startDate) : new Date(new Date().setDate(1)); // start of month
-    const end   = endDate   ? new Date(endDate)   : new Date();
-    return this.superAdminService.getFinancialOverview(start, end);
-  }
-
-  // ─── Audit Logs ───────────────────────────────────────────────────────────
 
   @Get('audit-logs')
-  @ApiOperation({ summary: 'View all audit logs across the platform' })
-  @ApiQuery({ name: 'limit',      required: false })
-  @ApiQuery({ name: 'offset',     required: false })
-  @ApiQuery({ name: 'actorId',    required: false })
-  @ApiQuery({ name: 'actionType', required: false, enum: AuditActionType })
-  async getAuditLogs(
-    @Query('limit')      limit      = 100,
-    @Query('offset')     offset     = 0,
-    @Query('actorId')    actorId?:    string,
-    @Query('actionType') actionType?: AuditActionType,
+  @ApiOperation({ summary: 'Get audit logs' })
+  getAuditLogs(
+    @Query('limit') limit = '50',
+    @Query('offset') offset = '0',
+    @Query('action') action?: string,
+    @Query('resourceType') resourceType?: string,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
   ) {
-    return this.superAdminService.getFullAuditLog(
-      Number(limit), Number(offset), actorId, actionType,
-    );
-  }
-
-  @Get('audit-logs/verify')
-  @ApiOperation({ summary: 'Verify audit log chain integrity — detects tampering' })
-  async verifyAuditIntegrity() {
-    return this.superAdminService.verifyAuditIntegrity();
+    return this.superAdminService.getAuditLogs({
+      limit: +limit, offset: +offset, action, resourceType,
+      startDate: startDate ? new Date(startDate) : undefined,
+      endDate:   endDate   ? new Date(endDate)   : undefined,
+    });
   }
 }

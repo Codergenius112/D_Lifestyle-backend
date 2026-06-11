@@ -1,10 +1,6 @@
 import {
-  Entity,
-  PrimaryGeneratedColumn,
-  Column,
-  CreateDateColumn,
-  UpdateDateColumn,
-  Index,
+  Entity, PrimaryGeneratedColumn, Column,
+  CreateDateColumn, UpdateDateColumn, Index,
 } from 'typeorm';
 
 @Entity('apartment_listings')
@@ -41,18 +37,30 @@ export class ApartmentListing {
   @Column({ type: 'integer' })
   maxGuests: number;
 
-  /** JSON array of amenity strings e.g. ["WiFi", "Pool", "AC"] */
+  @Column({ type: 'decimal', precision: 12, scale: 2, default: 0 }) // ← NEW
+  cautionFee: number;
+
+  @Column({ type: 'boolean', default: true }) // ← NEW
+  cautionFeeRefundable: boolean;
+
+  @Column({ type: 'text', nullable: true }) // ← NEW
+  houseRules: string | null;
+
+  @Column({ type: 'simple-array', nullable: true }) // ← NEW
+  unavailableDates: string[] | null;
+
   @Column({ type: 'jsonb', default: '[]' })
   amenities: string[];
 
-  /** JSON array of image URL strings */
   @Column({ type: 'jsonb', default: '[]' })
   images: string[];
 
   @Column({ type: 'boolean', default: true })
   isActive: boolean;
 
-  /** Optional: manager/admin who manages this listing */
+  @Column({ type: 'boolean', default: false }) // ← NEW
+  isDeleted: boolean;
+
   @Column({ type: 'uuid', nullable: true })
   managedBy: string;
 

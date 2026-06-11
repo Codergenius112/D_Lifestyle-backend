@@ -23,6 +23,9 @@ import { TablesModule }        from './modules/tables/tables.module';
 import { ApartmentsModule }    from './modules/apartments/apartments.module';
 import { CarsModule }          from './modules/cars/cars.module';
 import { EventsModule }        from './modules/events/events.module';
+import { VenueModule }         from './modules/venue/venue.module';
+import { CampaignModule }      from './modules/campaign/campaign.module';
+import { InventoryModule }     from './modules/inventory/inventory.module';
 import { AdminModule }         from './modules/admin/admin.module';
 import { SuperAdminModule }    from './modules/super-admin/super-admin.module';
 
@@ -56,8 +59,8 @@ import { ResponseInterceptor } from './common/interceptors/response.interceptor'
 
     // ── Queues ────────────────────────────────────────────────────────────────
     BullModule.forRoot({
-  redis: process.env.REDIS_URL,
-}),
+      redis: process.env.REDIS_URL,
+    }),
 
     // ── Scheduler ─────────────────────────────────────────────────────────────
     ScheduleModule.forRoot(),
@@ -76,8 +79,11 @@ import { ResponseInterceptor } from './common/interceptors/response.interceptor'
     ApartmentsModule,
     CarsModule,
     EventsModule,
+    VenueModule,         // depends on AuditModule
+    CampaignModule,      // depends on PaymentsModule + AuditModule + NotificationsModule
+    InventoryModule,     // depends on AuditModule
     AdminModule,         // depends on Bookings, Orders, Payments, Analytics, Audit, Notifications
-    SuperAdminModule,    // depends on Audit + Analytics
+    SuperAdminModule,    // depends on Audit + Analytics + PlatformSettings
   ],
 
   controllers: [], // every controller lives inside its feature module

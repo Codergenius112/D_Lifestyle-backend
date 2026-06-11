@@ -1,14 +1,9 @@
 import {
-  Entity,
-  PrimaryGeneratedColumn,
-  Column,
-  CreateDateColumn,
-  UpdateDateColumn,
-  Index,
-  OneToOne,
-  OneToMany,
+  Entity, PrimaryGeneratedColumn, Column,
+  CreateDateColumn, UpdateDateColumn, Index,
+  OneToOne, OneToMany,
 } from 'typeorm';
-import { UserRole } from '../enums';
+import { UserRole, BusinessScope } from '../enums';
 import { Wallet } from './wallet.entity';
 import { Booking } from './booking.entity';
 import { Order } from './order.entity';
@@ -40,6 +35,12 @@ export class User {
   @Column({ type: 'boolean', default: true })
   isActive: boolean;
 
+  @Column({ type: 'boolean', default: false }) // ← NEW
+  isDeleted: boolean;
+
+  @Column({ type: 'simple-array', nullable: true }) // ← NEW
+  businessScopes: BusinessScope[] | null;
+
   @Column({ type: 'timestamp', nullable: true })
   lastLoginAt: Date;
 
@@ -49,7 +50,6 @@ export class User {
   @UpdateDateColumn()
   updatedAt: Date;
 
-  // Relations
   @OneToOne(() => Wallet, (wallet) => wallet.user)
   wallet: Wallet;
 

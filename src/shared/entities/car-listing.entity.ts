@@ -1,10 +1,6 @@
 import {
-  Entity,
-  PrimaryGeneratedColumn,
-  Column,
-  CreateDateColumn,
-  UpdateDateColumn,
-  Index,
+  Entity, PrimaryGeneratedColumn, Column,
+  CreateDateColumn, UpdateDateColumn, Index,
 } from 'typeorm';
 
 @Entity('car_listings')
@@ -15,10 +11,10 @@ export class CarListing {
   id: string;
 
   @Column({ type: 'varchar', length: 100 })
-  make: string; // e.g. "Toyota"
+  make: string;
 
   @Column({ type: 'varchar', length: 100 })
-  model: string; // e.g. "Camry"
+  model: string;
 
   @Column({ type: 'integer' })
   year: number;
@@ -30,10 +26,10 @@ export class CarListing {
   plateNumber: string;
 
   @Column({ type: 'varchar', length: 20 })
-  transmission: string; // 'automatic' | 'manual'
+  transmission: string;
 
   @Column({ type: 'varchar', length: 50 })
-  category: string; // 'sedan' | 'suv' | 'luxury' | 'van'
+  category: string;
 
   @Column({ type: 'integer' })
   seats: number;
@@ -41,14 +37,24 @@ export class CarListing {
   @Column({ type: 'decimal', precision: 12, scale: 2 })
   pricePerDay: number;
 
+  @Column({ type: 'decimal', precision: 12, scale: 2, default: 0 }) // ← NEW
+  cautionFee: number;
+
+  @Column({ type: 'boolean', default: true }) // ← NEW
+  cautionFeeRefundable: boolean;
+
+  @Column({ type: 'simple-array', nullable: true }) // ← NEW
+  unavailableDates: string[] | null;
+
+  @Column({ type: 'uuid', nullable: true }) // ← NEW
+  assignedDriverId: string | null;
+
   @Column({ type: 'text' })
   description: string;
 
-  /** JSON array of feature strings e.g. ["AC", "Bluetooth", "GPS"] */
   @Column({ type: 'jsonb', default: '[]' })
   features: string[];
 
-  /** JSON array of image URL strings */
   @Column({ type: 'jsonb', default: '[]' })
   images: string[];
 
@@ -58,14 +64,15 @@ export class CarListing {
   @Column({ type: 'varchar', length: 100 })
   state: string;
 
-  /** Whether a driver is included */
   @Column({ type: 'boolean', default: false })
   withDriver: boolean;
 
   @Column({ type: 'boolean', default: true })
   isActive: boolean;
 
-  /** Optional: manager/admin who manages this listing */
+  @Column({ type: 'boolean', default: false }) // ← NEW
+  isDeleted: boolean;
+
   @Column({ type: 'uuid', nullable: true })
   managedBy: string;
 

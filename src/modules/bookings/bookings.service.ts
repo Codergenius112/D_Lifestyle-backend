@@ -209,4 +209,37 @@ export class BookingService {
       relations: ['payments', 'user'],
     });
   }
+
+  async resolveCautionFee(
+    bookingId:  string,
+    resolution: 'REFUNDED' | 'FORFEITED',
+    adminId:    string,
+  ) {
+    const booking = await this.bookingRepository.findOne({ where: { id: bookingId } });
+    if (!booking) throw new NotFoundException('Booking not found');
+
+    if (booking.status !== BookingStatus.COMPLETED) {
+      throw new BadRequestException('Caution fee can only be resolved on COMPLETED bookings');
+    }
+    if (booking.cautionFeeStatus !== 'HELD') {
+      throw new BadRequestException(`Caution fee is already ${booking.cautionFeeStatus}`);
+    }
+
+    booking.cautionFeeStatus     = resolution;
+    booking.cautionFeeResolvedAt = new Date();
+    booking.cautionFeeResolvedBy = adminId;
+    await this.bookingRepository.save(booking);
+
+    await this.auditService.logAction({
+      actionType: resolution === 'REFUNDED'
+        ? AuditActionType.CAUTION_FEE_REFUNDED
+        : AuditActionType.CAUTION_FEE_FORFEITED,
+      actorId:      adminId,
+      resourceType: 'booking',
+      resourceId:   bookingId,
+      changes:      { cautionFeeStatus: resolution, cautionFeeAmount: booking.cautionFeeAmount },
+    });
+
+    return booking;
+  }
 }

@@ -16,11 +16,11 @@ import { AdminAnalyticsController } from './admin-analytics.controller';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([User, Booking]),
+    TypeOrmModule.forFeature([User, Booking]), // ← Booking added
     BookingsModule,
     OrdersModule,
     PaymentsModule,
-    AnalyticsModule,
+    AnalyticsModule,                           // ← NEW
     AuditModule,
     NotificationsModule,
   ],

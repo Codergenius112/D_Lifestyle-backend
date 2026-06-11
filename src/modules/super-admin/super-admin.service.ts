@@ -1,24 +1,15 @@
 import {
-  Injectable,
-  BadRequestException,
-  NotFoundException,
+  Injectable, BadRequestException, NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
-import { User }             from '../../shared/entities/user.entity';
-import { Booking }          from '../../shared/entities/booking.entity';
-import { FinancialLedger }  from '../../shared/entities/financial-ledger.entity';
-import { AuditLog }         from '../../shared/entities/audit-log.entity';
-import { UserRole, AuditActionType, BookingStatus, PaymentStatus } from '../../shared/enums';
+import { User }            from '../../shared/entities/user.entity';
+import { Booking }         from '../../shared/entities/booking.entity';
+import { FinancialLedger } from '../../shared/entities/financial-ledger.entity';
+import { AuditLog }        from '../../shared/entities/audit-log.entity';
+import { UserRole, AuditActionType, BookingStatus, BusinessScope } from '../../shared/enums';
 import { AuditService }     from '../audit/audit.service';
 import { AnalyticsService } from '../analytics/analytics.service';
-
-// ─── In-memory platform settings (loaded from .env on startup) ───────────────
-// In v2: persist these in a platform_settings DB table so they survive restarts
-const platformSettings = {
-  serviceCharge:  parseFloat(process.env.SERVICE_CHARGE   ?? '400'),
-  commissionRate: parseFloat(process.env.COMMISSION_RATE  ?? '3'),
-};
 
 @Injectable()
 export class SuperAdminService {
@@ -40,53 +31,55 @@ export class SuperAdminService {
     private dataSource: DataSource,
   ) {}
 
-  // ─── 1. Get platform settings ─────────────────────────────────────────────
-  getPlatformSettings() {
-    return {
-      serviceCharge:  platformSettings.serviceCharge,
-      commissionRate: platformSettings.commissionRate,
-      currency:       'NGN',
-    };
+  async listAllUsers(params: {
+    limit: number; offset: number; role?: UserRole; search?: string;
+  }) {
+    const qb = this.userRepository.createQueryBuilder('u')
+      .select(['u.id', 'u.email', 'u.firstName', 'u.lastName', 'u.role',
+               'u.isActive', 'u.businessScopes', 'u.createdAt', 'u.lastLoginAt'])
+      .where('u.isDeleted = false');
+
+    if (params.role) qb.andWhere('u.role = :role', { role: params.role });
+    if (params.search) {
+      qb.andWhere(
+        '(u.email ILIKE :s OR u.firstName ILIKE :s OR u.lastName ILIKE :s)',
+        { s: `%${params.search}%` },
+      );
+    }
+
+    qb.take(params.limit).skip(params.offset).orderBy('u.createdAt', 'DESC');
+    const [data, total] = await qb.getManyAndCount();
+    return { data, total };
   }
 
-  // ─── 2. Update service charge ─────────────────────────────────────────────
-  async updateServiceCharge(newCharge: number, actorId: string, ipAddress: string) {
-    if (newCharge < 0) throw new BadRequestException('Service charge cannot be negative');
+  async updateUserScopes(
+    userId: string, scopes: BusinessScope[], actorId: string, ipAddress: string,
+  ) {
+    const user = await this.userRepository.findOne({ where: { id: userId } });
+    if (!user) throw new NotFoundException('User not found');
 
-    const old = platformSettings.serviceCharge;
-    platformSettings.serviceCharge = newCharge;
+    const before = user.businessScopes;
+    user.businessScopes = scopes.length > 0 ? scopes : null;
+    await this.userRepository.save(user);
 
     await this.auditService.logAction({
-      actionType: AuditActionType.ADMIN_OVERRIDE, actorId,
-      actorRole: UserRole.SUPER_ADMIN, resourceType: 'platform_settings',
-      resourceId: 'service_charge', changes: { from: old, to: newCharge }, ipAddress,
+      actionType: AuditActionType.STAFF_SCOPE_UPDATED,
+      actorId, actorRole: UserRole.SUPER_ADMIN,
+      resourceType: 'user', resourceId: userId,
+      changes: { before: { businessScopes: before }, after: { businessScopes: scopes } },
+      ipAddress,
     });
 
-    return { message: `Service charge updated from ₦${old} to ₦${newCharge}`, serviceCharge: newCharge };
+    return { message: 'Scopes updated', businessScopes: user.businessScopes };
   }
 
-  // ─── 3. Update commission rate ────────────────────────────────────────────
-  async updateCommissionRate(newRate: number, actorId: string, ipAddress: string) {
-    if (newRate < 0 || newRate > 100) throw new BadRequestException('Rate must be 0–100');
-
-    const old = platformSettings.commissionRate;
-    platformSettings.commissionRate = newRate;
-
-    await this.auditService.logAction({
-      actionType: AuditActionType.ADMIN_OVERRIDE, actorId,
-      actorRole: UserRole.SUPER_ADMIN, resourceType: 'platform_settings',
-      resourceId: 'commission_rate', changes: { from: old, to: newRate }, ipAddress,
-    });
-
-    return { message: `Commission rate updated from ${old}% to ${newRate}%`, commissionRate: newRate };
-  }
-
-  // ─── 4. Promote user to ADMIN ─────────────────────────────────────────────
   async promoteToAdmin(userId: string, actorId: string, ipAddress: string): Promise<User> {
     const user = await this.userRepository.findOne({ where: { id: userId } });
     if (!user) throw new NotFoundException('User not found');
-    if (user.role === UserRole.SUPER_ADMIN) throw new BadRequestException('Cannot change another SUPER_ADMIN');
-    if (user.role === UserRole.ADMIN) throw new BadRequestException('User is already an ADMIN');
+    if (user.role === UserRole.SUPER_ADMIN)
+      throw new BadRequestException('Cannot change another SUPER_ADMIN');
+    if (user.role === UserRole.ADMIN)
+      throw new BadRequestException('User is already an ADMIN');
 
     const oldRole = user.role;
     user.role = UserRole.ADMIN;
@@ -101,26 +94,26 @@ export class SuperAdminService {
     return updated;
   }
 
-  // ─── 5. Demote ADMIN to MANAGER ───────────────────────────────────────────
-  async demoteAdmin(userId: string, actorId: string, ipAddress: string): Promise<User> {
+  async demoteAdmin(userId: string, actorId: string, ipAddress: string) {
     const user = await this.userRepository.findOne({ where: { id: userId } });
     if (!user) throw new NotFoundException('User not found');
-    if (user.role === UserRole.SUPER_ADMIN) throw new BadRequestException('Cannot demote a SUPER_ADMIN');
-    if (user.role !== UserRole.ADMIN) throw new BadRequestException('User is not an ADMIN');
+    if (user.role === UserRole.SUPER_ADMIN)
+      throw new BadRequestException('Cannot demote a SUPER_ADMIN');
 
-    user.role = UserRole.MANAGER;
-    const updated = await this.userRepository.save(user);
+    const oldRole = user.role;
+    user.role = UserRole.CUSTOMER;
+    await this.userRepository.save(user);
 
     await this.auditService.logAction({
-      actionType: AuditActionType.USER_UPDATED, actorId, actorRole: UserRole.SUPER_ADMIN,
-      resourceType: 'user', resourceId: userId,
-      changes: { role: { from: UserRole.ADMIN, to: UserRole.MANAGER } }, ipAddress,
+      actionType: AuditActionType.USER_UPDATED, actorId,
+      actorRole: UserRole.SUPER_ADMIN, resourceType: 'user', resourceId: userId,
+      changes: { before: { role: oldRole }, after: { role: UserRole.CUSTOMER } },
+      ipAddress,
     });
 
-    return updated;
+    return { message: 'User demoted to CUSTOMER', userId };
   }
 
-  // ─── 6. Override any booking ──────────────────────────────────────────────
   async overrideBookingStatus(
     bookingId: string, newStatus: BookingStatus,
     reason: string, actorId: string, ipAddress: string,
@@ -134,7 +127,11 @@ export class SuperAdminService {
 
     booking.metadata = {
       ...booking.metadata,
-      superAdminOverride: { by: actorId, reason, from: oldStatus, to: newStatus, at: new Date().toISOString() },
+      superAdminOverride: {
+        by: actorId, reason,
+        from: oldStatus, to: newStatus,
+        at: new Date().toISOString(),
+      },
     };
 
     const updated = await this.bookingRepository.save(booking);
@@ -148,64 +145,24 @@ export class SuperAdminService {
     return updated;
   }
 
-  // ─── 7. Full financial overview ───────────────────────────────────────────
-  async getFinancialOverview(startDate: Date, endDate: Date) {
-    const [revenue, dashboard, walletResult, refundResult, topupResult] = await Promise.all([
-      this.analyticsService.getRevenueAnalytics(startDate, endDate),
-      this.analyticsService.getDashboardMetrics(startDate, endDate),
+  async getPlatformFinancials(startDate?: Date, endDate?: Date) {
+    const end   = endDate   ?? new Date();
+    const start = startDate ?? new Date(end.getTime() - 30 * 24 * 60 * 60 * 1000);
+
+    const [revenue, walletResult] = await Promise.all([
+      this.analyticsService.getRevenueAnalytics(start, end),
       this.dataSource.query(`SELECT COALESCE(SUM(balance), 0) as total FROM wallets`),
-      this.dataSource.query(
-        `SELECT COALESCE(SUM(amount), 0) as total FROM financial_ledger
-         WHERE transaction_type = 'CREDIT' AND description LIKE 'Refund%'
-         AND timestamp BETWEEN $1 AND $2`, [startDate, endDate],
-      ),
-      this.dataSource.query(
-        `SELECT COALESCE(SUM(amount), 0) as total FROM financial_ledger
-         WHERE transaction_type = 'CREDIT' AND description LIKE 'Wallet top-up%'
-         AND timestamp BETWEEN $1 AND $2`, [startDate, endDate],
-      ),
     ]);
 
     return {
-      period:           { startDate, endDate },
+      period: { startDate: start, endDate: end },
       revenue,
-      dashboardRevenue: dashboard.revenue,
       wallets: {
         totalBalanceAcrossPlatform: parseFloat(walletResult[0]?.total ?? '0').toFixed(2),
-        totalTopUps:                parseFloat(topupResult[0]?.total  ?? '0').toFixed(2),
-        totalRefunds:               parseFloat(refundResult[0]?.total ?? '0').toFixed(2),
       },
-      platformSettings: this.getPlatformSettings(),
     };
   }
 
-  // ─── 8. Full audit log (all users, all actions) ───────────────────────────
-  async getFullAuditLog(limit = 100, offset = 0, actorId?: string, actionType?: AuditActionType) {
-    const query = this.auditRepository.createQueryBuilder('audit');
-    if (actorId)    query.andWhere('audit.actorId = :actorId', { actorId });
-    if (actionType) query.andWhere('audit.actionType = :actionType', { actionType });
-
-    const [data, total] = await query
-      .orderBy('audit.timestamp', 'DESC')
-      .take(Math.min(limit, 500))
-      .skip(offset)
-      .getManyAndCount();
-
-    return { data, total, limit, offset };
-  }
-
-  // ─── 9. Verify audit log integrity ────────────────────────────────────────
-  async verifyAuditIntegrity() {
-    const isValid = await this.auditService.verifyIntegrity();
-    return {
-      intact:  isValid,
-      message: isValid
-        ? 'Audit log chain is intact — no tampering detected'
-        : '⚠️ Audit log integrity FAILED — possible tampering detected',
-    };
-  }
-
-  // ─── 10. Platform user stats ──────────────────────────────────────────────
   async getUserStats() {
     const [total, customers, admins, active] = await Promise.all([
       this.userRepository.count(),
@@ -215,12 +172,33 @@ export class SuperAdminService {
     ]);
 
     return {
-      total,
-      customers,
-      admins,
-      staff:    total - customers - admins,
-      active,
-      inactive: total - active,
+      total, customers, admins,
+      staff: total - customers - admins,
+      active, inactive: total - active,
+    };
+  }
+
+  async getAuditLogs(params: {
+    limit: number; offset: number; action?: string;
+    resourceType?: string; startDate?: Date; endDate?: Date;
+  }) {
+    const qb = this.auditRepository.createQueryBuilder('a').orderBy('a.timestamp', 'DESC');
+    if (params.action)       qb.andWhere('a.actionType = :action', { action: params.action });
+    if (params.resourceType) qb.andWhere('a.resourceType = :rt', { rt: params.resourceType });
+    if (params.startDate)    qb.andWhere('a.timestamp >= :s', { s: params.startDate });
+    if (params.endDate)      qb.andWhere('a.timestamp <= :e', { e: params.endDate });
+    qb.take(params.limit).skip(params.offset);
+    const [data, total] = await qb.getManyAndCount();
+    return { data, total };
+  }
+
+  async verifyAuditIntegrity() {
+    const isValid = await this.auditService.verifyIntegrity();
+    return {
+      intact: isValid,
+      message: isValid
+        ? 'Audit log chain is intact — no tampering detected'
+        : '⚠️ Audit log integrity FAILED — possible tampering detected',
     };
   }
 }
