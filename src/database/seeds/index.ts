@@ -61,12 +61,12 @@ async function seed() {
       phone: '+2348012345681',
     },
     {
-      email: 'admin@dlifestyle.com',
-      password: 'AdminPassword123',
-      firstName: 'Admin',
-      lastName: 'User',
+      email:    process.env.SUPER_ADMIN_EMAIL    || 'admin@dlifestyle.com',
+      password: process.env.SUPER_ADMIN_PASSWORD || 'AdminPassword123',
+      firstName: process.env.SUPER_ADMIN_FIRSTNAME || 'Admin',
+      lastName:  process.env.SUPER_ADMIN_LASTNAME  || 'User',
       role: 'super_admin',
-      phone: '+2348012345682',
+      phone: '',
     },
   ];
 
