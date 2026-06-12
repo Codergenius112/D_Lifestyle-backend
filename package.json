@@ -19,6 +19,7 @@
     "db:migrate": "dotenv -e .env -- typeorm migration:run -d dist/database/data-source.js",
     "db:migration:create": "typeorm migration:create",
     "db:seed": "node dist/database/seeds/index.js",
+    "db:seed:superadmin": "node dist/scripts/seed-superadmin.js",
     "db:drop": "typeorm schema:drop -d dist/database/data-source.js",
     "lint": "eslint src/**/*.ts",
     "format": "prettier --write src/**/*.ts",

@@ -6,7 +6,7 @@ import {
   IsEnum,
   IsPositive,
 } from 'class-validator';
-import { UserRole } from '../enums';
+import { UserRole, BusinessScope } from '../enums';
 
 export class CreateEventDto {
   @IsString()
@@ -91,6 +91,14 @@ export class AddStaffDto {
   @IsOptional()
   @IsString()
   phone?: string;
+
+  @IsOptional()
+  @IsString()
+  password?: string;
+
+  @IsOptional()
+  @IsArray()
+  businessScopes?: BusinessScope[];
 }
 
 export class UpdateStaffRoleDto {

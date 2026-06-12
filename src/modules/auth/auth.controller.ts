@@ -7,15 +7,20 @@ import {
   BadRequestException,
   UseGuards,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
+import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { RolesGuard }   from '../../common/guards/roles.guard';
+import { Roles }        from '../../common/decorators/roles.decorator';
 import { AuthService } from './auth.service';
 import {
   RegisterDto,
   LoginDto,
   AuthResponseDto,
   RefreshTokenDto,
+  AdminRegisterDto,
 } from '../../shared/dtos/auth.dto';
+import { UserRole } from '../../shared/enums';
 
 @ApiTags('Auth')
 @Controller('auth')
@@ -61,5 +66,19 @@ export class AuthController {
       throw new BadRequestException('Refresh token is required');
     }
     return this.authService.refreshToken(refreshTokenDto.refreshToken);
+  }
+
+  // SUPER_ADMIN only — register a new ADMIN or MANAGER
+  @Post('admin-register')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.SUPER_ADMIN)
+  @ApiBearerAuth()
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({ summary: 'Register admin or manager (SUPER_ADMIN only)' })
+  @ApiResponse({ status: 201, description: 'Admin/Manager registered successfully' })
+  @ApiResponse({ status: 403, description: 'Forbidden — SUPER_ADMIN only' })
+  async adminRegister(@Body() dto: AdminRegisterDto): Promise<AuthResponseDto> {
+    return this.authService.adminRegister(dto);
   }
 }

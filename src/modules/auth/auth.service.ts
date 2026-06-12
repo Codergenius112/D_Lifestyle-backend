@@ -9,7 +9,8 @@ import { Repository, DataSource } from 'typeorm';
 import * as bcrypt from 'bcryptjs';
 import { User } from '../../shared/entities/user.entity';
 import { Wallet } from '../../shared/entities/wallet.entity';
-import { RegisterDto, LoginDto, AuthResponseDto } from '../../shared/dtos/auth.dto';
+import { RegisterDto, LoginDto, AuthResponseDto, AdminRegisterDto } from '../../shared/dtos/auth.dto';
+import { UserRole, BusinessScope } from '../../shared/enums';
 import { StringValue } from 'ms';
 
 @Injectable()
@@ -44,6 +45,47 @@ export class AuthService {
         firstName: registerDto.firstName,
         lastName: registerDto.lastName,
         phone: registerDto.phone,
+      });
+
+      const savedUser = await manager.save(user);
+
+      const wallet = manager.create(Wallet, {
+        userId: savedUser.id,
+        balance: 0,
+      });
+
+      await manager.save(wallet);
+
+      return this.generateAuthResponse(savedUser);
+    });
+  }
+
+  // ================= ADMIN REGISTER =================
+  async adminRegister(dto: AdminRegisterDto): Promise<AuthResponseDto> {
+    // Only allow ADMIN or MANAGER role
+    if (dto.role !== UserRole.ADMIN && dto.role !== UserRole.MANAGER) {
+      throw new BadRequestException('Only ADMIN or MANAGER role is allowed for admin registration');
+    }
+
+    return this.dataSource.transaction(async manager => {
+      const existingUser = await manager.findOne(User, {
+        where: { email: dto.email },
+      });
+
+      if (existingUser) {
+        throw new BadRequestException('Email already registered');
+      }
+
+      const hashedPassword = await bcrypt.hash(dto.password, 12);
+
+      const user = manager.create(User, {
+        email: dto.email,
+        passwordHash: hashedPassword,
+        firstName: dto.firstName,
+        lastName: dto.lastName,
+        phone: dto.phone,
+        role: dto.role,
+        businessScopes: dto.businessScopes ?? null,
       });
 
       const savedUser = await manager.save(user);
@@ -129,6 +171,8 @@ export class AuthService {
         firstName: user.firstName,
         lastName: user.lastName,
         role: user.role,
+        businessScopes: user.businessScopes,
+        isActive: user.isActive,
       },
     };
   }

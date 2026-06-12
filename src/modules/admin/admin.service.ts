@@ -7,7 +7,7 @@ import * as bcrypt from 'bcryptjs';
 import * as crypto from 'crypto';
 import { User }    from '../../shared/entities/user.entity';
 import { Booking } from '../../shared/entities/booking.entity';
-import { UserRole, AuditActionType, BookingStatus } from '../../shared/enums';
+import { UserRole, AuditActionType, BookingStatus, BusinessScope } from '../../shared/enums';
 import { AuditService }        from '../audit/audit.service';
 import { NotificationService } from '../notifications/notifications.service';
 
@@ -38,7 +38,7 @@ export class AdminService {
   }
 
   async addStaff(
-    staffData: { email: string; firstName: string; lastName: string; role: UserRole; phone?: string; password?: string },
+    staffData: { email: string; firstName: string; lastName: string; role: UserRole; phone?: string; password?: string; businessScopes?: BusinessScope[] },
     adminId: string, ipAddress: string,
   ): Promise<User> {
     const existing = await this.userRepository.findOne({ where: { email: staffData.email } });
@@ -51,6 +51,7 @@ export class AdminService {
       email: staffData.email, passwordHash: hashedPassword,
       firstName: staffData.firstName, lastName: staffData.lastName,
       phone: staffData.phone, role: staffData.role, isActive: true,
+      businessScopes: staffData.businessScopes ?? null,
     });
 
     const savedUser = await this.userRepository.save(user) as User;
