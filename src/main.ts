@@ -13,12 +13,16 @@ async function bootstrap() {
   // HMAC-SHA512 signature verification in PaystackWebhookController.
   app.use('/payments/webhook', express.raw({ type: 'application/json' }));
 
-  // ── Security middleware ────────────────────────────────────────────────────
-  app.use(helmet());
-  app.enableCors({
+
+app.enableCors({
   origin: process.env.CORS_ORIGIN?.split(',') ?? ['http://localhost:3000'],
   credentials: true,
 });
+
+// ── Security middleware ────────────────────────────────────────────────────
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: 'cross-origin' }, // add this too
+}));
 
   // ── Global validation pipe ─────────────────────────────────────────────────
   app.useGlobalPipes(
