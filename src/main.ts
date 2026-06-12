@@ -14,10 +14,7 @@ async function bootstrap() {
   app.use('/payments/webhook', express.raw({ type: 'application/json' }));
 
 
-app.enableCors({
-  origin: process.env.CORS_ORIGIN?.split(',') ?? ['http://localhost:3000'],
-  credentials: true,
-});
+app.enableCors();
 
 // ── Security middleware ────────────────────────────────────────────────────
 app.use(helmet({
