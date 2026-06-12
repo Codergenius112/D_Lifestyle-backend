@@ -16,9 +16,9 @@ async function bootstrap() {
   // ── Security middleware ────────────────────────────────────────────────────
   app.use(helmet());
   app.enableCors({
-    origin:      process.env.CORS_ORIGIN?.split(',') || '*',
-    credentials: true,
-  });
+  origin: process.env.CORS_ORIGIN?.split(',') ?? ['http://localhost:3000'],
+  credentials: true,
+});
 
   // ── Global validation pipe ─────────────────────────────────────────────────
   app.useGlobalPipes(
