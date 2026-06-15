@@ -15,6 +15,13 @@ import { TableListing }       from '../shared/entities/table-listing.entity';
 import { MenuItem }           from '../shared/entities/menu-item.entity';
 import { Event }              from '../shared/entities/event.entity';
 import { DeviceToken }        from '../shared/entities/device-token.entity';
+import { Venue }              from '../shared/entities/venue.entity';
+import { Station }            from '../shared/entities/station.entity';
+import { TicketType }         from '../shared/entities/ticket-type.entity';
+import { InventoryItem }      from '../shared/entities/inventory-item.entity';
+import { InventoryTransaction } from '../shared/entities/inventory-transaction.entity';
+import { PlatformSettings }   from '../shared/entities/platform-settings.entity';
+import { NotificationCampaign } from '../shared/entities/notification-campaign.entity';
 
 // ─── Validate required env vars on startup ───────────────────────────────────
 const requiredEnvVars = [
@@ -50,6 +57,13 @@ export const dataSourceOptions: DataSourceOptions = {
     MenuItem,
     Event,
     DeviceToken,
+    Venue,
+    Station,
+    TicketType,
+    InventoryItem,
+    InventoryTransaction,
+    PlatformSettings,
+    NotificationCampaign,
   ],
 
   migrations: [__dirname + '/migrations/*{.ts,.js}'],

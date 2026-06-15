@@ -24,7 +24,7 @@ export class CarsController {
 
   
   @Get('listings')
-  @Roles(UserRole.CUSTOMER)
+  @Roles(UserRole.CUSTOMER, UserRole.ADMIN, UserRole.MANAGER, UserRole.SUPER_ADMIN)
   async getListings(
     @Query('city') city?: string,
     @Query('minPrice') minPrice?: string,
@@ -49,7 +49,7 @@ export class CarsController {
 
  
   @Get('listings/:id')
-  @Roles(UserRole.CUSTOMER)
+  @Roles(UserRole.CUSTOMER, UserRole.ADMIN, UserRole.MANAGER, UserRole.SUPER_ADMIN)
   async getListing(@Param('id') id: string) {
     return this.carListingsService.getListing(id);
   }

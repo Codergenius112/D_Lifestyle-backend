@@ -140,10 +140,32 @@ export class InventoryService {
   }
 
   async getTransactionHistory(itemId: string) {
-    return this.txRepo.find({
-      where: { itemId },
-      order: { createdAt: 'DESC' },
-    });
+    const rows = await this.txRepo.createQueryBuilder('tx')
+      .leftJoin('users', 'u', 'u.id = tx."performedBy"')
+      .addSelect(['u.firstName AS "performedByFirstName"',
+                  'u.lastName  AS "performedByLastName"',
+                  'u.role      AS "performedByRole2"'])
+      .where('tx."itemId" = :itemId', { itemId })
+      .orderBy('tx."createdAt"', 'DESC')
+      .getRawMany();
+
+    return rows.map(r => ({
+      id:              r.tx_id,
+      itemId:          r.tx_itemId,
+      type:            r.tx_type,
+      quantity:        r.tx_quantity,
+      balanceBefore:   r.tx_balanceBefore,
+      balanceAfter:    r.tx_balanceAfter,
+      reason:          r.tx_reason,
+      performedBy:     r.tx_performedBy,
+      performedByRole: r.tx_performedByRole,
+      createdAt:       r.tx_createdAt,
+      performedByUser: r.performedByFirstName
+        ? { firstName: r.performedByFirstName,
+            lastName:  r.performedByLastName,
+            role:      r.performedByRole2 }
+        : null,
+    }));
   }
 
   private async findItemOrThrow(id: string): Promise<InventoryItem> {
