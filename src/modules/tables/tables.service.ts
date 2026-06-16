@@ -3,7 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Booking } from '../../shared/entities/booking.entity';
 import { TableListing } from '../../shared/entities/table-listing.entity';
-import { BookingType, BookingStatus, PaymentStatus, AuditActionType } from '../../shared/enums';
+import { BookingType, BookingStatus, PaymentStatus, AuditActionType, TableCategory } from '../../shared/enums';
 import { AuditService } from '../audit/audit.service';
 
 interface CreateTableBookingDto {
@@ -132,5 +132,37 @@ export class TablesService {
       take: limit,
       skip: offset,
     });
+  }
+
+  // ── Admin: Table Listings Management ─────────────────────────────────────
+
+  async getAllListings(limit = 50, offset = 0, venueId?: string) {
+    const where: any = {};
+    if (venueId) where.venueId = venueId;
+    const [listings, total] = await this.tableListingRepository.findAndCount({
+      where,
+      order: { createdAt: 'DESC' },
+      take: limit,
+      skip: offset,
+    });
+    return { listings, total };
+  }
+
+  async createListing(data: Partial<TableListing>): Promise<TableListing> {
+    const listing = this.tableListingRepository.create(data);
+    return this.tableListingRepository.save(listing);
+  }
+
+  async updateListing(id: string, data: Partial<TableListing>): Promise<TableListing> {
+    const listing = await this.tableListingRepository.findOne({ where: { id } });
+    if (!listing) throw new NotFoundException('Table listing not found');
+    Object.assign(listing, data);
+    return this.tableListingRepository.save(listing);
+  }
+
+  async deleteListing(id: string): Promise<void> {
+    const listing = await this.tableListingRepository.findOne({ where: { id } });
+    if (!listing) throw new NotFoundException('Table listing not found');
+    await this.tableListingRepository.delete(id);
   }
 }

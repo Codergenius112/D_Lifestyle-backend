@@ -1,5 +1,5 @@
-import { Controller, Post, Get, Body, Param, UseGuards, HttpCode } from '@nestjs/common';
-import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
+import { Controller, Post, Get, Patch, Delete, Body, Param, Query, UseGuards, HttpCode } from '@nestjs/common';
+import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -49,5 +49,40 @@ export class TablesController {
   @Roles(UserRole.CUSTOMER)
   async getBooking(@Param('id') bookingId: string) {
     return this.tablesService.getTableBooking(bookingId);
+  }
+
+  // ── Admin: Table Listings Management ─────────────────────────────────────
+
+  @Get('listings')
+  @Roles(UserRole.ADMIN, UserRole.MANAGER, UserRole.SUPER_ADMIN)
+  @ApiOperation({ summary: 'List all table listings (admin)' })
+  async listListings(
+    @Query('limit') limit = 50,
+    @Query('offset') offset = 0,
+    @Query('venueId') venueId?: string,
+  ) {
+    return this.tablesService.getAllListings(Number(limit), Number(offset), venueId);
+  }
+
+  @Post('listings')
+  @Roles(UserRole.ADMIN, UserRole.MANAGER)
+  @ApiOperation({ summary: 'Create a table listing' })
+  async createListing(@Body() data: any) {
+    return this.tablesService.createListing(data);
+  }
+
+  @Patch('listings/:id')
+  @Roles(UserRole.ADMIN, UserRole.MANAGER)
+  @ApiOperation({ summary: 'Update a table listing' })
+  async updateListing(@Param('id') id: string, @Body() data: any) {
+    return this.tablesService.updateListing(id, data);
+  }
+
+  @Delete('listings/:id')
+  @Roles(UserRole.ADMIN, UserRole.MANAGER)
+  @ApiOperation({ summary: 'Delete a table listing' })
+  @HttpCode(204)
+  async deleteListing(@Param('id') id: string) {
+    return this.tablesService.deleteListing(id);
   }
 }
