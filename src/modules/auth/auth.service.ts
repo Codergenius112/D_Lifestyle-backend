@@ -2,6 +2,7 @@ import {
   Injectable,
   UnauthorizedException,
   BadRequestException,
+  NotFoundException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -182,5 +183,55 @@ export class AuthService {
     const user = await this.userRepository.findOne({ where: { id } });
     if (!user) throw new UnauthorizedException();
     return user;
+  }
+
+  // ================= FORGOT PASSWORD =================
+  async forgotPassword(email: string): Promise<{ message: string; resetToken?: string }> {
+    const user = await this.userRepository.findOne({ where: { email } });
+    if (!user) {
+      // Don't reveal if the email exists — always return success
+      return { message: 'If the email exists, a reset link has been sent.' };
+    }
+
+    const resetToken = this.jwtService.sign(
+      { sub: user.id, email: user.email, purpose: 'password-reset' },
+      {
+        secret: process.env.JWT_SECRET,
+        expiresIn: '900s', // 15 minutes
+      },
+    );
+
+    // TODO: Send email with reset link containing the token
+    // For now, return the token so the frontend can use it
+    return { message: 'If the email exists, a reset link has been sent.', resetToken };
+  }
+
+  // ================= RESET PASSWORD =================
+  async resetPassword(token: string, newPassword: string): Promise<{ message: string }> {
+    try {
+      const decoded = this.jwtService.verify(token, {
+        secret: process.env.JWT_SECRET,
+      });
+
+      if (decoded.purpose !== 'password-reset') {
+        throw new BadRequestException('Invalid reset token');
+      }
+
+      const user = await this.userRepository.findOne({
+        where: { id: decoded.sub, email: decoded.email },
+      });
+
+      if (!user) {
+        throw new NotFoundException('User not found');
+      }
+
+      user.passwordHash = await bcrypt.hash(newPassword, 12);
+      await this.userRepository.save(user);
+
+      return { message: 'Password reset successfully' };
+    } catch (err) {
+      if (err instanceof BadRequestException || err instanceof NotFoundException) throw err;
+      throw new BadRequestException('Invalid or expired reset token');
+    }
   }
 }

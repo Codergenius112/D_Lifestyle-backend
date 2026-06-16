@@ -2,7 +2,7 @@ import { Injectable, BadRequestException, NotFoundException } from '@nestjs/comm
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Order } from '../../shared/entities/order.entity';
-import { OrderStatus, AuditActionType } from '../../shared/enums';
+import { OrderStatus, AuditActionType, BusinessScope, BookingType } from '../../shared/enums';
 import { AuditService } from '../audit/audit.service';
 
 @Injectable()
@@ -89,13 +89,33 @@ export class OrderService {
     });
   }
 
-  async getAllOrders(limit = 50, offset = 0): Promise<{ orders: Order[]; total: number }> {
-    const [orders, total] = await this.orderRepository.findAndCount({
-      order: { createdAt: 'DESC' },
-      take:  limit,
-      skip:  offset,
-    });
+  async getAllOrders(limit = 50, offset = 0, businessScopes?: string[]): Promise<{ orders: Order[]; total: number }> {
+    const qb = this.orderRepository
+      .createQueryBuilder('order')
+      .leftJoinAndSelect('order.booking', 'booking')
+      .orderBy('order.createdAt', 'DESC')
+      .take(limit)
+      .skip(offset);
+
+    if (businessScopes && businessScopes.length > 0) {
+      const bookingTypes = this.mapScopesToBookingTypes(businessScopes);
+      if (bookingTypes.length > 0) {
+        qb.andWhere('booking.bookingType IN (:...types)', { types: bookingTypes });
+      }
+    }
+
+    const [orders, total] = await qb.getManyAndCount();
     return { orders, total };
+  }
+
+  private mapScopesToBookingTypes(scopes: string[]): string[] {
+    const mapping: Record<string, string> = {
+      [BusinessScope.TABLE_CLUB]: BookingType.TABLE,
+      [BusinessScope.EVENT_TICKETING]: BookingType.TICKET,
+      [BusinessScope.APARTMENT]: BookingType.APARTMENT,
+      [BusinessScope.CAR_RENTAL]: BookingType.CAR,
+    };
+    return scopes.map(s => mapping[s]).filter(Boolean);
   }
 
   async getLiveOrders(): Promise<Order[]> {

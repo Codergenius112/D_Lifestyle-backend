@@ -22,6 +22,17 @@ import {
 } from '../../shared/dtos/auth.dto';
 import { UserRole } from '../../shared/enums';
 
+import { IsString, IsEmail, MinLength } from 'class-validator';
+
+class ForgotPasswordDto {
+  @IsEmail() email: string;
+}
+
+class ResetPasswordDto {
+  @IsString() token: string;
+  @IsString() @MinLength(8) newPassword: string;
+}
+
 @ApiTags('Auth')
 @Controller('auth')
 @UseGuards(ThrottlerGuard)
@@ -80,5 +91,23 @@ export class AuthController {
   @ApiResponse({ status: 403, description: 'Forbidden — SUPER_ADMIN only' })
   async adminRegister(@Body() dto: AdminRegisterDto): Promise<AuthResponseDto> {
     return this.authService.adminRegister(dto);
+  }
+
+  // Forgot password — generates reset token
+  @Post('forgot-password')
+  @Throttle({ default: { limit: 3, ttl: 60_000 } })
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Request password reset' })
+  async forgotPassword(@Body() dto: ForgotPasswordDto) {
+    return this.authService.forgotPassword(dto.email);
+  }
+
+  // Reset password — uses token to set new password
+  @Post('reset-password')
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Reset password with token' })
+  async resetPassword(@Body() dto: ResetPasswordDto) {
+    return this.authService.resetPassword(dto.token, dto.newPassword);
   }
 }

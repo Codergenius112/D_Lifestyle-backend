@@ -25,12 +25,17 @@ export class AdminOrdersController {
 
   @Get()
   @Roles(UserRole.ADMIN, UserRole.MANAGER)
-  @ApiOperation({ summary: 'List all orders' })
+  @ApiOperation({ summary: 'List orders filtered by user business scopes' })
   async listAllOrders(
     @Query('limit') limit = 50,
     @Query('offset') offset = 0,
+    @CurrentUser() user: any,
   ) {
-    return this.orderService.getAllOrders(Number(limit), Number(offset));
+    return this.orderService.getAllOrders(
+      Number(limit),
+      Number(offset),
+      user.businessScopes,
+    );
   }
 
   @Get('live')
