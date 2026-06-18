@@ -2,6 +2,7 @@ import {
   Entity, PrimaryGeneratedColumn, Column,
   CreateDateColumn, UpdateDateColumn, Index,
 } from 'typeorm';
+import { CommissionPayer } from '../enums';
 
 @Entity('events')
 @Index('idx_events_venue_id', ['venueId'])
@@ -21,7 +22,7 @@ export class Event {
    * venueId is a plain string key (e.g. 'venue-skylounge')
    * — not a FK so we don't need a venues table yet.
    */
-  @Column({ type: 'varchar', length: 100 })
+  @Column({ type: 'varchar', length: 100, nullable: true })
   venueId: string;
 
   @Column({ type: 'timestamp' })
@@ -52,6 +53,10 @@ export class Event {
 
   @Column({ type: 'jsonb', default: [] })
   images: string[];
+
+  /** Who pays commission for this event - USER (added to price) or ADMIN (deducted from payout) */
+  @Column({ type: 'enum', enum: CommissionPayer, default: CommissionPayer.USER })
+  commissionPayer: CommissionPayer;
 
   @CreateDateColumn()
   createdAt: Date;
