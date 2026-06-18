@@ -28,6 +28,7 @@ import { CampaignModule }      from './modules/campaign/campaign.module';
 import { InventoryModule }     from './modules/inventory/inventory.module';
 import { AdminModule }         from './modules/admin/admin.module';
 import { SuperAdminModule }    from './modules/super-admin/super-admin.module';
+import { UploadsModule }       from './modules/uploads/uploads.module';
 
 // ─── Shared Services (no feature module owns these) ───────────────────────────
 import { PricingService }    from './shared/services/pricing.service';
@@ -84,6 +85,7 @@ import { ResponseInterceptor } from './common/interceptors/response.interceptor'
     InventoryModule,     // depends on AuditModule
     AdminModule,         // depends on Bookings, Orders, Payments, Analytics, Audit, Notifications
     SuperAdminModule,    // depends on Audit + Analytics + PlatformSettings
+    UploadsModule,       // file upload support
   ],
 
   controllers: [], // every controller lives inside its feature module

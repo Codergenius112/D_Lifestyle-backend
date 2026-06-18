@@ -9,7 +9,7 @@ import { CurrentUser }             from '../../common/decorators/current-user.de
 import { IpAddress }               from '../../common/decorators/ip-address.decorator';
 import { SuperAdminService }       from './super-admin.service';
 import { PlatformSettingsService } from '../platform-settings/platform-settings.service';
-import { BusinessScope }           from '../../shared/enums';
+import { BusinessScope, CommissionPayer }           from '../../shared/enums';
 import { IsArray, IsEnum, IsOptional, IsNumber, Min, Max } from 'class-validator';
 
 class UpdateScopesDto {
@@ -20,6 +20,7 @@ class UpdateScopesDto {
 class UpdatePlatformSettingsDto {
   @IsOptional() @IsNumber() @Min(0) serviceCharge?: number;
   @IsOptional() @IsNumber() @Min(0) @Max(1) commissionRate?: number;
+  @IsOptional() @IsEnum(CommissionPayer) commissionPayer?: CommissionPayer;
   @IsOptional() @IsNumber() @Min(0) pushNotificationFee?: number;
 }
 

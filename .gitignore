@@ -12,6 +12,9 @@ yarn.lock
 dist/
 build/
 
+# Uploads
+uploads/
+
 # IDE
 .vscode/
 .idea/

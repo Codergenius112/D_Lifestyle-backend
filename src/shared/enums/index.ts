@@ -62,6 +62,11 @@ export enum BusinessScope {
   EVENT_TICKETING = 'EVENT_TICKETING',
 }
 
+export enum CommissionPayer {
+  USER = 'USER',   // User pays commission (added to total)
+  ADMIN = 'ADMIN', // Admin pays commission (deducted from payout)
+}
+
 export enum AuditActionType {
   BOOKING_CREATED = 'BOOKING_CREATED',
   BOOKING_UPDATED = 'BOOKING_UPDATED',

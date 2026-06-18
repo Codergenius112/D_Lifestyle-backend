@@ -37,21 +37,8 @@ export class TablesController {
     return { bookings, total };
   }
 
-  // ── IMPORTANT: must be above @Get(':id') or NestJS will treat
-  //   'venue' as a booking UUID and 404 every time ─────────────────────────
-  @Get('venue/:venueId')
-  @Roles(UserRole.CUSTOMER)
-  async getVenueTables(@Param('venueId') venueId: string) {
-    return this.tablesService.getVenueTables(venueId);
-  }
-
-  @Get(':id')
-  @Roles(UserRole.CUSTOMER)
-  async getBooking(@Param('id') bookingId: string) {
-    return this.tablesService.getTableBooking(bookingId);
-  }
-
   // ── Admin: Table Listings Management ─────────────────────────────────────
+  // IMPORTANT: Static routes must be ABOVE @Get(':id') or NestJS treats them as params
 
   @Get('listings')
   @Roles(UserRole.ADMIN, UserRole.MANAGER, UserRole.SUPER_ADMIN)
@@ -84,5 +71,19 @@ export class TablesController {
   @HttpCode(204)
   async deleteListing(@Param('id') id: string) {
     return this.tablesService.deleteListing(id);
+  }
+
+  // ── Customer routes (below static routes) ────────────────────────────────
+
+  @Get('venue/:venueId')
+  @Roles(UserRole.CUSTOMER)
+  async getVenueTables(@Param('venueId') venueId: string) {
+    return this.tablesService.getVenueTables(venueId);
+  }
+
+  @Get(':id')
+  @Roles(UserRole.CUSTOMER)
+  async getBooking(@Param('id') bookingId: string) {
+    return this.tablesService.getTableBooking(bookingId);
   }
 }

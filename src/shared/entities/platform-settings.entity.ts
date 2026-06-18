@@ -1,4 +1,5 @@
 import { Entity, PrimaryGeneratedColumn, Column, UpdateDateColumn } from 'typeorm';
+import { CommissionPayer } from '../enums';
 
 @Entity('platform_settings')
 export class PlatformSettings {
@@ -10,6 +11,9 @@ export class PlatformSettings {
 
   @Column({ type: 'decimal', precision: 5, scale: 4, default: 0.03 })
   commissionRate: number;
+
+  @Column({ type: 'enum', enum: CommissionPayer, default: CommissionPayer.USER })
+  commissionPayer: CommissionPayer;
 
   @Column({ type: 'decimal', precision: 12, scale: 2, default: 5000 })
   pushNotificationFee: number;

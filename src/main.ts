@@ -3,6 +3,7 @@ import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { ValidationPipe } from '@nestjs/common';
 import helmet from 'helmet';
 import * as express from 'express';
+import { join } from 'path';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
@@ -20,6 +21,9 @@ app.enableCors();
 app.use(helmet({
   crossOriginResourcePolicy: { policy: 'cross-origin' }, // add this too
 }));
+
+  // ── Serve uploaded files statically ─────────────────────────────────────
+  app.use('/uploads', express.static(join(__dirname, '..', 'uploads')));
 
   // ── Global validation pipe ─────────────────────────────────────────────────
   app.useGlobalPipes(

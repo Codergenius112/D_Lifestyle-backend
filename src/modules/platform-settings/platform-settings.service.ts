@@ -25,7 +25,7 @@ export class PlatformSettingsService {
   }
 
   async updateSettings(
-    dto: Partial<Pick<PlatformSettings, 'serviceCharge' | 'commissionRate' | 'pushNotificationFee'>>,
+    dto: Partial<Pick<PlatformSettings, 'serviceCharge' | 'commissionRate' | 'commissionPayer' | 'pushNotificationFee'>>,
     actorId: string,
     ipAddress: string,
   ): Promise<PlatformSettings> {
@@ -33,6 +33,7 @@ export class PlatformSettingsService {
     const before = {
       serviceCharge: current.serviceCharge,
       commissionRate: current.commissionRate,
+      commissionPayer: current.commissionPayer,
       pushNotificationFee: current.pushNotificationFee,
     };
 

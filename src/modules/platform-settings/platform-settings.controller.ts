@@ -5,11 +5,13 @@ import { SuperAdminGuard } from '../../common/guards/super-admin.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { IpAddress } from '../../common/decorators/ip-address.decorator';
 import { PlatformSettingsService } from './platform-settings.service';
-import { IsNumber, IsOptional, Min, Max } from 'class-validator';
+import { IsNumber, IsOptional, IsEnum, Min, Max } from 'class-validator';
+import { CommissionPayer } from '../../shared/enums';
 
 class UpdatePlatformSettingsDto {
   @IsOptional() @IsNumber() @Min(0) serviceCharge?: number;
   @IsOptional() @IsNumber() @Min(0) @Max(1) commissionRate?: number;
+  @IsOptional() @IsEnum(CommissionPayer) commissionPayer?: CommissionPayer;
   @IsOptional() @IsNumber() @Min(0) pushNotificationFee?: number;
 }
 

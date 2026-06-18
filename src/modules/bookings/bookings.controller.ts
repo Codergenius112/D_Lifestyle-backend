@@ -75,7 +75,7 @@ export class BookingsController {
   }
 
   @Post(':id/checkin')
-  @Roles(UserRole.CUSTOMER)
+  @Roles(UserRole.CUSTOMER, UserRole.DOOR_STAFF, UserRole.ADMIN, UserRole.MANAGER)
   @HttpCode(200)
   async checkIn(
     @Param('id') bookingId: string,
