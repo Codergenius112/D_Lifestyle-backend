@@ -2,7 +2,9 @@ import { Injectable, NotFoundException, BadRequestException } from '@nestjs/comm
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Booking } from '../../shared/entities/booking.entity';
-import { BookingType, BookingStatus, PaymentStatus, AuditActionType } from '../../shared/enums';
+import { Event } from '../../shared/entities/event.entity';
+import { PlatformSettings } from '../../shared/entities/platform-settings.entity';
+import { BookingType, BookingStatus, PaymentStatus, AuditActionType, CommissionPayer } from '../../shared/enums';
 import { AuditService } from '../audit/audit.service';
 
 interface CreateTicketDto {
@@ -16,25 +18,69 @@ export class TicketsService {
   constructor(
     @InjectRepository(Booking)
     private bookingRepository: Repository<Booking>,
+    @InjectRepository(Event)
+    private eventRepository: Repository<Event>,
+    @InjectRepository(PlatformSettings)
+    private platformSettingsRepository: Repository<PlatformSettings>,
     private auditService: AuditService,
   ) {}
+
+  private async getPlatformSettings(): Promise<PlatformSettings> {
+    const SINGLETON_ID = '00000000-0000-0000-0000-000000000001';
+    let settings = await this.platformSettingsRepository.findOne({ where: { id: SINGLETON_ID } });
+    if (!settings) {
+      settings = this.platformSettingsRepository.create({ id: SINGLETON_ID });
+      await this.platformSettingsRepository.save(settings);
+    }
+    return settings;
+  }
 
   async createTicket(
     userId: string,
     createTicketDto: CreateTicketDto,
     ipAddress: string,
   ): Promise<Booking> {
+    // Fetch event to get commission payer setting
+    const event = await this.eventRepository.findOne({
+      where: { id: createTicketDto.eventId },
+    });
+
+    // Get platform settings for commission rate and service charge
+    const platformSettings = await this.getPlatformSettings();
+    const commissionRate = Number(platformSettings.commissionRate) || 0.03;
+    const serviceCharge = Number(platformSettings.serviceCharge) || 400;
+
+    // Determine who pays commission
+    const commissionPayer = event?.commissionPayer || platformSettings.commissionPayer || CommissionPayer.USER;
+    const basePrice = createTicketDto.totalPrice;
+    const commission = basePrice * commissionRate;
+
     const booking = new Booking();
     booking.bookingType = BookingType.TICKET;
     booking.userId = userId;
     booking.resourceId = createTicketDto.eventId;
-    booking.basePrice = createTicketDto.totalPrice;
+    booking.basePrice = basePrice;
     booking.guestCount = createTicketDto.quantity;
-    booking.serviceCharge = 400;
-    booking.platformCommission = createTicketDto.totalPrice * 0.03;
-    booking.totalAmount = createTicketDto.totalPrice + 400;
+    booking.serviceCharge = serviceCharge;
+    booking.platformCommission = commission;
+
+    // If USER pays commission: add to total (basePrice + serviceCharge + commission)
+    // If ADMIN pays commission: deduct from payout, user doesn't see it in total
+    if (commissionPayer === CommissionPayer.USER) {
+      booking.totalAmount = basePrice + serviceCharge + commission;
+    } else {
+      // Admin pays - user only pays base + service charge
+      booking.totalAmount = basePrice + serviceCharge;
+    }
+
     booking.status = BookingStatus.INITIATED;
     booking.paymentStatus = PaymentStatus.UNPAID;
+    booking.metadata = {
+      commissionPayer,
+      commissionRate,
+      platformSettingsCommissionPayer: platformSettings.commissionPayer,
+      eventCommissionPayer: event?.commissionPayer,
+    };
 
     const saved = await this.bookingRepository.save(booking);
 
@@ -43,7 +89,7 @@ export class TicketsService {
       actorId: userId,
       resourceType: 'ticket',
       resourceId: saved.id,
-      changes: { quantity: createTicketDto.quantity, price: createTicketDto.totalPrice },
+      changes: { quantity: createTicketDto.quantity, price: createTicketDto.totalPrice, commissionPayer },
       ipAddress,
     });
 

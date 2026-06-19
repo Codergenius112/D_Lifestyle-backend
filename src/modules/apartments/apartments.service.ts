@@ -2,7 +2,8 @@ import { Injectable, NotFoundException, BadRequestException } from '@nestjs/comm
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Booking } from '../../shared/entities/booking.entity';
-import { BookingType, BookingStatus, PaymentStatus, AuditActionType } from '../../shared/enums';
+import { PlatformSettings } from '../../shared/entities/platform-settings.entity';
+import { BookingType, BookingStatus, PaymentStatus, AuditActionType, CommissionPayer } from '../../shared/enums';
 import { AuditService } from '../audit/audit.service';
 
 interface CreateApartmentBookingDto {
@@ -14,11 +15,24 @@ interface CreateApartmentBookingDto {
 
 @Injectable()
 export class ApartmentsService {
+  private readonly SINGLETON_ID = '00000000-0000-0000-0000-000000000001';
+
   constructor(
     @InjectRepository(Booking)
     private bookingRepository: Repository<Booking>,
+    @InjectRepository(PlatformSettings)
+    private platformSettingsRepository: Repository<PlatformSettings>,
     private auditService: AuditService,
   ) {}
+
+  private async getPlatformSettings(): Promise<PlatformSettings> {
+    let settings = await this.platformSettingsRepository.findOne({ where: { id: this.SINGLETON_ID } });
+    if (!settings) {
+      settings = this.platformSettingsRepository.create({ id: this.SINGLETON_ID });
+      await this.platformSettingsRepository.save(settings);
+    }
+    return settings;
+  }
 
   async bookApartment(
     userId: string,
@@ -37,21 +51,39 @@ export class ApartmentsService {
       throw new BadRequestException('Apartment not available for selected dates');
     }
 
+    // Get platform settings
+    const platformSettings = await this.getPlatformSettings();
+    const commissionRate = Number(platformSettings.commissionRate) || 0.03;
+    const serviceCharge = Number(platformSettings.serviceCharge) || 400;
+    const commissionPayer = platformSettings.commissionPayer || CommissionPayer.USER;
+    const basePrice = createApartmentBookingDto.price;
+    const commission = basePrice * commissionRate;
+    const cautionFee = Math.ceil(basePrice * 0.1); // 10% caution fee
+
     const booking = new Booking();
     booking.bookingType = BookingType.APARTMENT;
     booking.userId = userId;
     booking.resourceId = createApartmentBookingDto.apartmentId;
-    booking.basePrice = createApartmentBookingDto.price;
+    booking.basePrice = basePrice;
     booking.guestCount = 1;
-    booking.serviceCharge = 400;
-    booking.platformCommission = createApartmentBookingDto.price * 0.03;
-    booking.totalAmount = createApartmentBookingDto.price + 400;
+    booking.serviceCharge = serviceCharge;
+    booking.platformCommission = commission;
+
+    // If USER pays commission: add to total
+    if (commissionPayer === CommissionPayer.USER) {
+      booking.totalAmount = basePrice + serviceCharge + commission;
+    } else {
+      booking.totalAmount = basePrice + serviceCharge;
+    }
+
     booking.status = BookingStatus.INITIATED;
     booking.paymentStatus = PaymentStatus.UNPAID;
     booking.metadata = {
       checkInDate: createApartmentBookingDto.checkInDate,
       checkOutDate: createApartmentBookingDto.checkOutDate,
-      cautionFee: Math.ceil(createApartmentBookingDto.price * 0.1), // 10% caution fee
+      cautionFee,
+      commissionPayer,
+      commissionRate,
     };
 
     const saved = await this.bookingRepository.save(booking);

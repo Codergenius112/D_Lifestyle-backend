@@ -3,39 +3,68 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { Booking } from '../../shared/entities/booking.entity';
 import { GroupBooking } from '../../shared/entities/group-booking.entity';
+import { PlatformSettings } from '../../shared/entities/platform-settings.entity';
 import {
   BookingStatus,
   BookingType,
   PaymentStatus,
   AuditActionType,
+  CommissionPayer,
 } from '../../shared/enums';
 import { BookingStateMachine } from '../../shared/services/state-machine.service';
 import { AuditService } from '../audit/audit.service';
 
 @Injectable()
 export class BookingService {
+  private readonly SINGLETON_ID = '00000000-0000-0000-0000-000000000001';
+
   constructor(
     @InjectRepository(Booking)
     private bookingRepository: Repository<Booking>,
     @InjectRepository(GroupBooking)
     private groupBookingRepository: Repository<GroupBooking>,
+    @InjectRepository(PlatformSettings)
+    private platformSettingsRepository: Repository<PlatformSettings>,
     private auditService: AuditService,
     private dataSource: DataSource,
   ) {}
 
+  private async getPlatformSettings(): Promise<PlatformSettings> {
+    let settings = await this.platformSettingsRepository.findOne({ where: { id: this.SINGLETON_ID } });
+    if (!settings) {
+      settings = this.platformSettingsRepository.create({ id: this.SINGLETON_ID });
+      await this.platformSettingsRepository.save(settings);
+    }
+    return settings;
+  }
+
   async createBooking(createBookingDto: any, userId: string, ipAddress: string) {
+    const platformSettings = await this.getPlatformSettings();
+    const commissionRate = Number(platformSettings.commissionRate) || 0.03;
+    const serviceCharge = Number(platformSettings.serviceCharge) || 400;
+    const commissionPayer = platformSettings.commissionPayer || CommissionPayer.USER;
+
     const booking = new Booking();
     booking.bookingType = createBookingDto.bookingType;
     booking.userId = userId;
     booking.resourceId = createBookingDto.resourceId;
     booking.guestCount = createBookingDto.guestCount;
     booking.basePrice = createBookingDto.basePrice;
-    booking.serviceCharge = parseFloat(process.env.SERVICE_CHARGE ?? '400');
-    booking.platformCommission = booking.basePrice * 0.03; // 3% commission
-    booking.totalAmount = booking.basePrice + booking.serviceCharge;
+    booking.serviceCharge = serviceCharge;
+    booking.platformCommission = booking.basePrice * commissionRate;
+    booking.metadata = { commissionPayer, commissionRate };
+
+    // If USER pays commission: add to total
+    if (commissionPayer === CommissionPayer.USER) {
+      booking.totalAmount = booking.basePrice + serviceCharge + booking.platformCommission;
+    } else {
+      // Admin pays - user only pays base + service charge
+      booking.totalAmount = booking.basePrice + serviceCharge;
+    }
+
     booking.status = BookingStatus.INITIATED;
     booking.paymentStatus = PaymentStatus.UNPAID;
-    booking.metadata = createBookingDto.metadata || {};
+    booking.metadata = { ...booking.metadata, ...(createBookingDto.metadata || {}) };
 
     const savedBooking = await this.bookingRepository.save(booking);
 
@@ -111,6 +140,11 @@ export class BookingService {
     bookingData: any,
     ipAddress: string,
   ): Promise<Booking> {
+    const platformSettings = await this.getPlatformSettings();
+    const commissionRate = Number(platformSettings.commissionRate) || 0.03;
+    const serviceCharge = Number(platformSettings.serviceCharge) || 400;
+    const commissionPayer = platformSettings.commissionPayer || CommissionPayer.USER;
+
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
@@ -123,11 +157,19 @@ export class BookingService {
       booking.resourceId = bookingData.resourceId;
       booking.guestCount = bookingData.guestCount;
       booking.basePrice = bookingData.basePrice;
-      booking.serviceCharge = parseFloat(process.env.SERVICE_CHARGE ?? '400');
-      booking.platformCommission = booking.basePrice * 0.03;
-      booking.totalAmount = booking.basePrice + booking.serviceCharge;
+      booking.serviceCharge = serviceCharge;
+      booking.platformCommission = booking.basePrice * commissionRate;
+
+      // If USER pays commission: add to total
+      if (commissionPayer === CommissionPayer.USER) {
+        booking.totalAmount = booking.basePrice + serviceCharge + booking.platformCommission;
+      } else {
+        booking.totalAmount = booking.basePrice + serviceCharge;
+      }
+
       booking.status = BookingStatus.PENDING_GROUP_PAYMENT;
       booking.paymentStatus = PaymentStatus.UNPAID;
+      booking.metadata = { commissionPayer, commissionRate };
 
       const savedBooking = await queryRunner.manager.save(booking);
 

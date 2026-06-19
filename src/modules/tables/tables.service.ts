@@ -3,7 +3,8 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Booking } from '../../shared/entities/booking.entity';
 import { TableListing } from '../../shared/entities/table-listing.entity';
-import { BookingType, BookingStatus, PaymentStatus, AuditActionType, TableCategory } from '../../shared/enums';
+import { PlatformSettings } from '../../shared/entities/platform-settings.entity';
+import { BookingType, BookingStatus, PaymentStatus, AuditActionType, TableCategory, CommissionPayer } from '../../shared/enums';
 import { AuditService } from '../audit/audit.service';
 
 interface CreateTableBookingDto {
@@ -16,13 +17,26 @@ interface CreateTableBookingDto {
 
 @Injectable()
 export class TablesService {
+  private readonly SINGLETON_ID = '00000000-0000-0000-0000-000000000001';
+
   constructor(
     @InjectRepository(Booking)
     private bookingRepository: Repository<Booking>,
     @InjectRepository(TableListing)
     private tableListingRepository: Repository<TableListing>,
+    @InjectRepository(PlatformSettings)
+    private platformSettingsRepository: Repository<PlatformSettings>,
     private auditService: AuditService,
   ) {}
+
+  private async getPlatformSettings(): Promise<PlatformSettings> {
+    let settings = await this.platformSettingsRepository.findOne({ where: { id: this.SINGLETON_ID } });
+    if (!settings) {
+      settings = this.platformSettingsRepository.create({ id: this.SINGLETON_ID });
+      await this.platformSettingsRepository.save(settings);
+    }
+    return settings;
+  }
 
   // ── GET /tables/venue/:venueId ─────────────────────────────────────────────
   async getVenueTables(venueId: string) {
@@ -81,20 +95,37 @@ export class TablesService {
       throw new BadRequestException('Table not available for selected date');
     }
 
+    // Get platform settings for commission rate and service charge
+    const platformSettings = await this.getPlatformSettings();
+    const commissionRate = Number(platformSettings.commissionRate) || 0.03;
+    const serviceCharge = Number(platformSettings.serviceCharge) || 400;
+    const commissionPayer = platformSettings.commissionPayer || CommissionPayer.USER;
+    const basePrice = createTableBookingDto.price;
+    const commission = basePrice * commissionRate;
+
     const booking = new Booking();
     booking.bookingType = BookingType.TABLE;
     booking.userId = userId;
     booking.resourceId = createTableBookingDto.tableId;
-    booking.basePrice = createTableBookingDto.price;
+    booking.basePrice = basePrice;
     booking.guestCount = createTableBookingDto.guestCount;
-    booking.serviceCharge = 400;
-    booking.platformCommission = createTableBookingDto.price * 0.03;
-    booking.totalAmount = createTableBookingDto.price + 400;
+    booking.serviceCharge = serviceCharge;
+    booking.platformCommission = commission;
+
+    // If USER pays commission: add to total
+    if (commissionPayer === CommissionPayer.USER) {
+      booking.totalAmount = basePrice + serviceCharge + commission;
+    } else {
+      booking.totalAmount = basePrice + serviceCharge;
+    }
+
     booking.status = BookingStatus.INITIATED;
     booking.paymentStatus = PaymentStatus.UNPAID;
     booking.metadata = {
       venueId: createTableBookingDto.venueId,
       bookingDate: createTableBookingDto.bookingDate,
+      commissionPayer,
+      commissionRate,
     };
 
     const saved = await this.bookingRepository.save(booking);

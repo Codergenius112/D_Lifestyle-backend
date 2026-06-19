@@ -12,8 +12,8 @@ yarn.lock
 dist/
 build/
 
-# Uploads
-uploads/
+# Uploads (root-level only, not src/modules/uploads/)
+/uploads/
 
 # IDE
 .vscode/

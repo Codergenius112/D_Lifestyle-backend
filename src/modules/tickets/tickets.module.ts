@@ -1,12 +1,14 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { Booking } from '../../shared/entities/booking.entity';
+import { Event } from '../../shared/entities/event.entity';
+import { PlatformSettings } from '../../shared/entities/platform-settings.entity';
 import { TicketsService } from './tickets.service';
 import { TicketsController } from './tickets.controller';
 import { AuditModule } from '../audit/audit.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Booking]), AuditModule],
+  imports: [TypeOrmModule.forFeature([Booking, Event, PlatformSettings]), AuditModule],
   providers: [TicketsService],
   controllers: [TicketsController],
   exports: [TicketsService],

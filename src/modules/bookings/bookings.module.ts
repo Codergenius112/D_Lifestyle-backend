@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { Booking }      from '../../shared/entities/booking.entity';
 import { GroupBooking } from '../../shared/entities/group-booking.entity';
+import { PlatformSettings } from '../../shared/entities/platform-settings.entity';
 import { BookingService }               from './bookings.service';
 import { BookingsController }           from './bookings.controller';
 import { LateArrivalService }           from './late-arrival.service';
@@ -12,7 +13,7 @@ import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Booking, GroupBooking]),
+    TypeOrmModule.forFeature([Booking, GroupBooking, PlatformSettings]),
     AuditModule,
     NotificationsModule,
   ],
