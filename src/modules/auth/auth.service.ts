@@ -185,6 +185,20 @@ export class AuthService {
     return user;
   }
 
+  // ================= GET PROFILE =================
+  async getProfile(userId: string) {
+    const user = await this.userRepository.findOne({
+      where: { id: userId },
+      select: [
+        'id', 'email', 'firstName', 'lastName', 'phone',
+        'role', 'isActive', 'businessScopes', 'lastLoginAt',
+        'createdAt', 'updatedAt',
+      ],
+    });
+    if (!user) throw new NotFoundException('User not found');
+    return user;
+  }
+
   // ================= FORGOT PASSWORD =================
   async forgotPassword(email: string): Promise<{ message: string; resetToken?: string }> {
     const user = await this.userRepository.findOne({ where: { email } });

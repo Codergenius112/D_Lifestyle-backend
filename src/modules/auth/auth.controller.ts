@@ -1,6 +1,7 @@
 import {
   Controller,
   Post,
+  Get,
   Body,
   HttpCode,
   HttpStatus,
@@ -23,6 +24,7 @@ import {
 import { UserRole } from '../../shared/enums';
 
 import { IsString, IsEmail, MinLength } from 'class-validator';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
 
 class ForgotPasswordDto {
   @IsEmail() email: string;
@@ -38,6 +40,15 @@ class ResetPasswordDto {
 @UseGuards(ThrottlerGuard)
 export class AuthController {
   constructor(private authService: AuthService) {}
+
+  // GET /auth/me — return current user profile from JWT
+  @Get('me')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Get current user profile' })
+  async getProfile(@CurrentUser() user: any) {
+    return this.authService.getProfile(user.id ?? user.sub);
+  }
 
   // Max 5 registration attempts per minute per IP
   @Post('register')
