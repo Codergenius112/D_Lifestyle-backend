@@ -196,4 +196,20 @@ export class TablesService {
     if (!listing) throw new NotFoundException('Table listing not found');
     await this.tableListingRepository.delete(id);
   }
+
+  async updateTablePosition(
+    id: string,
+    positionData: {
+      x: number;
+      y: number;
+      rotation: number;
+      width: number;
+      height: number;
+    },
+  ): Promise<TableListing> {
+    const listing = await this.tableListingRepository.findOne({ where: { id } });
+    if (!listing) throw new NotFoundException('Table listing not found');
+    listing.floorPlanPosition = positionData as any;
+    return this.tableListingRepository.save(listing);
+  }
 }

@@ -18,6 +18,16 @@ export class OrderService {
     userId: string,
     items: any[],
     ipAddress: string,
+    locationData?: {
+      type: 'table' | 'ticket';
+      tableInfo?: {
+        tableId: string;
+        tableName: string;
+        category: string;
+        venueId: string;
+      };
+      pickupLocation?: string;
+    },
   ): Promise<Order> {
     if (!items?.length) {
       throw new BadRequestException('Order must contain at least one item');
@@ -34,6 +44,15 @@ export class OrderService {
     order.items       = items;
     order.totalAmount = totalAmount;
     order.status      = OrderStatus.CREATED;
+
+    // Add location info based on booking type
+    if (locationData) {
+      if (locationData.type === 'table' && locationData.tableInfo) {
+        order.tableInfo = locationData.tableInfo;
+      } else if (locationData.type === 'ticket' && locationData.pickupLocation) {
+        order.pickupLocation = locationData.pickupLocation;
+      }
+    }
 
     const savedOrder = await this.orderRepository.save(order);
 

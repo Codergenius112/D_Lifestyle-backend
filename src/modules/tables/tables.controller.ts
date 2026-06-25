@@ -73,6 +73,22 @@ export class TablesController {
     return this.tablesService.deleteListing(id);
   }
 
+  @Patch('listings/:id/position')
+  @Roles(UserRole.ADMIN, UserRole.MANAGER)
+  @ApiOperation({ summary: 'Update table floor plan position' })
+  async updateTablePosition(
+    @Param('id') id: string,
+    @Body() positionData: {
+      x: number;
+      y: number;
+      rotation: number;
+      width: number;
+      height: number;
+    },
+  ) {
+    return this.tablesService.updateTablePosition(id, positionData);
+  }
+
   // ── Customer routes (below static routes) ────────────────────────────────
 
   @Get('venue/:venueId')

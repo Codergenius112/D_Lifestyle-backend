@@ -54,4 +54,30 @@ export class VenueController {
   remove(@Param('id') id: string) {
     return this.venueService.softDelete(id);
   }
+
+  @Post(':id/floor-plan')
+  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Update venue floor plan' })
+  async updateFloorPlan(
+    @Param('id') id: string,
+    @Body() floorPlanData: {
+      hasFloorPlan: boolean;
+      floorPlanData?: {
+        width: number;
+        height: number;
+        backgroundImage?: string;
+        tables: Array<{
+          tableId: string;
+          x: number;
+          y: number;
+          rotation: number;
+          width: number;
+          height: number;
+        }>;
+      };
+    },
+  ) {
+    return this.venueService.updateFloorPlan(id, floorPlanData);
+  }
 }

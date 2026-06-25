@@ -27,7 +27,13 @@ export class OrdersController {
     @CurrentUser() user: any,
     @IpAddress() ipAddress: string,
   ) {
-    return this.orderService.createOrder(body.bookingId, user.id, body.items, ipAddress);
+    return this.orderService.createOrder(
+      body.bookingId,
+      user.id,
+      body.items,
+      ipAddress,
+      body.locationData, // tableInfo or pickupLocation
+    );
   }
 
   // GET /orders/my — must be BEFORE :id

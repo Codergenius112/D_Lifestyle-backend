@@ -37,6 +37,16 @@ export class TableListing {
   @Column({ type: 'jsonb', nullable: true })
   features: string[]; // e.g. ['Bottle service', 'Dance floor view', 'Private area']
 
+  // Floor plan position data (optional)
+  @Column({ type: 'jsonb', nullable: true })
+  floorPlanPosition: {
+    x: number;
+    y: number;
+    rotation: number;
+    width: number;
+    height: number;
+  };
+
   @Column({ type: 'boolean', default: true })
   isActive: boolean;
 

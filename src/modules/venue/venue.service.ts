@@ -58,4 +58,29 @@ export class VenueService {
     venue.isDeleted = true;
     await this.repo.save(venue);
   }
+
+  async updateFloorPlan(
+    id: string,
+    floorPlanData: {
+      hasFloorPlan: boolean;
+      floorPlanData?: {
+        width: number;
+        height: number;
+        backgroundImage?: string;
+        tables: Array<{
+          tableId: string;
+          x: number;
+          y: number;
+          rotation: number;
+          width: number;
+          height: number;
+        }>;
+      };
+    },
+  ): Promise<Venue> {
+    const venue = await this.findOne(id);
+    venue.hasFloorPlan = floorPlanData.hasFloorPlan;
+    venue.floorPlanData = floorPlanData.floorPlanData as any;
+    return this.repo.save(venue);
+  }
 }

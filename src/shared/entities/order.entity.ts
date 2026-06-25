@@ -65,6 +65,19 @@ export class Order {
   @Column({ type: 'text', nullable: true })
   notes: string;
 
+  // Table order info (for table bookings)
+  @Column({ type: 'jsonb', nullable: true })
+  tableInfo: {
+    tableId: string;
+    tableName: string;
+    category: string;
+    venueId: string;
+  };
+
+  // Pickup location (for ticket/event orders)
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  pickupLocation: string; // e.g. "Bar Counter", "Kitchen Window", "Food Station 1"
+
   @CreateDateColumn()
   createdAt: Date;
 

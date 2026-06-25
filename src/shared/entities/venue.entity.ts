@@ -32,6 +32,25 @@ export class Venue {
   @Column({ type: 'boolean', default: false })
   isDeleted: boolean;
 
+  // Floor plan fields
+  @Column({ type: 'boolean', default: false })
+  hasFloorPlan: boolean;
+
+  @Column({ type: 'jsonb', nullable: true })
+  floorPlanData: {
+    width: number;
+    height: number;
+    backgroundImage?: string;
+    tables: Array<{
+      tableId: string;
+      x: number;
+      y: number;
+      rotation: number;
+      width: number;
+      height: number;
+    }>;
+  };
+
   @CreateDateColumn()
   createdAt: Date;
 
