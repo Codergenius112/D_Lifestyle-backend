@@ -14,6 +14,7 @@ import { AuditModule }         from './modules/audit/audit.module';
 import { AnalyticsModule }     from './modules/analytics/analytics.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { AuthModule }          from './modules/auth/auth.module';
+import { UsersModule }         from './modules/users/users.module';
 import { BookingsModule }      from './modules/bookings/bookings.module';
 import { PaymentsModule }      from './modules/payments/payments.module';
 import { OrdersModule }        from './modules/orders/orders.module';
@@ -71,6 +72,7 @@ import { ResponseInterceptor } from './common/interceptors/response.interceptor'
     AnalyticsModule,     // AdminModule + SuperAdminModule depend on this
     NotificationsModule, // BookingsModule + QueuesModule + AdminModule depend on this
     AuthModule,
+    UsersModule,
     BookingsModule,      // includes LateArrivalService, GroupBookingCountdownService, BookingSchedulerService
     PaymentsModule,      // includes WalletController + PaystackService
     OrdersModule,

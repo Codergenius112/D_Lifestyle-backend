@@ -16,6 +16,7 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { IpAddress } from '../../common/decorators/ip-address.decorator';
 import { BookingService } from './bookings.service';
+import { GroupBookingCountdownService } from './group-booking-countdown.service';
 import { UserRole } from '../../shared/enums';
 
 @ApiTags('Bookings')
@@ -23,7 +24,10 @@ import { UserRole } from '../../shared/enums';
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('bookings')
 export class BookingsController {
-  constructor(private bookingService: BookingService) {}
+  constructor(
+    private bookingService: BookingService,
+    private groupBookingCountdownService: GroupBookingCountdownService,
+  ) {}
 
   @Post()
   @Roles(UserRole.CUSTOMER)
@@ -49,6 +53,40 @@ export class BookingsController {
       offset,
     );
     return { bookings, total };
+  }
+
+  // ── Group Bookings ─────────────────────────────────────────────────────────
+  // Static routes must stay ABOVE @Get(':id') / @Patch(':id/status') below,
+  // same reasoning as the tables module — otherwise "group" gets swallowed
+  // as an :id param.
+
+  @Post('group')
+  @Roles(UserRole.CUSTOMER)
+  @HttpCode(201)
+  async createGroupBooking(
+    @Body() body: any,
+    @CurrentUser() user: any,
+    @IpAddress() ipAddress: string,
+  ) {
+    return this.bookingService.createGroupBooking(user.id, body, ipAddress);
+  }
+
+  @Get('group/:id')
+  @Roles(UserRole.CUSTOMER)
+  async getGroupBookingStatus(@Param('id') id: string) {
+    return this.groupBookingCountdownService.getGroupBookingStatus(id);
+  }
+
+  @Post('group/:id/contribute')
+  @Roles(UserRole.CUSTOMER)
+  @HttpCode(200)
+  async contributeToGroupBooking(
+    @Param('id') id: string,
+    @Body() body: { amount: number },
+    @CurrentUser() user: any,
+    @IpAddress() ipAddress: string,
+  ) {
+    return this.bookingService.contributeToGroupBooking(id, user.id, body.amount, ipAddress);
   }
 
   @Get(':id')

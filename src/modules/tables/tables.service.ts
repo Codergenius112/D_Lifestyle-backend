@@ -8,7 +8,8 @@ import { BookingType, BookingStatus, PaymentStatus, AuditActionType, TableCatego
 import { AuditService } from '../audit/audit.service';
 
 interface CreateTableBookingDto {
-  venueId: string;
+  venueId?: string;
+  eventId?: string;
   tableId: string;
   guestCount: number;
   bookingDate: string;
@@ -46,11 +47,30 @@ export class TablesService {
       order: { price: 'ASC' },
     });
 
+    return this.attachAvailability(listings, { venueId });
+  }
+
+  // ── GET /tables/event/:eventId ──────────────────────────────────────────────
+  // For one-off spaces (stadiums, fields) with no permanent venue record —
+  // tables are registered directly against the event instead.
+  async getEventTables(eventId: string) {
+    const listings = await this.tableListingRepository.find({
+      where: { eventId, isActive: true },
+      order: { price: 'ASC' },
+    });
+
+    return this.attachAvailability(listings, { eventId });
+  }
+
+  private async attachAvailability(
+    listings: TableListing[],
+    scope: { venueId?: string; eventId?: string },
+  ) {
     if (!listings.length) {
-      return { tables: [], total: 0, venueId };
+      return { tables: [], total: 0, ...scope };
     }
 
-    // 2. Find all confirmed bookings for these table IDs
+    // Find all confirmed bookings for these table IDs
     const tableIds = listings.map((t) => t.id);
     const confirmedBookings = await this.bookingRepository
       .createQueryBuilder('booking')
@@ -62,10 +82,10 @@ export class TablesService {
 
     const bookedTableIds = new Set(confirmedBookings.map((b) => b.resourceId));
 
-    // 3. Return listings with live availability flag
     const tables = listings.map((listing) => ({
       id: listing.id,
       venueId: listing.venueId,
+      eventId: listing.eventId,
       name: listing.name,
       category: listing.category,
       capacity: listing.capacity,
@@ -75,7 +95,7 @@ export class TablesService {
       available: !bookedTableIds.has(listing.id),
     }));
 
-    return { tables, total: tables.length, venueId };
+    return { tables, total: tables.length, ...scope };
   }
 
   // ── POST /tables ───────────────────────────────────────────────────────────
@@ -122,7 +142,8 @@ export class TablesService {
     booking.status = BookingStatus.INITIATED;
     booking.paymentStatus = PaymentStatus.UNPAID;
     booking.metadata = {
-      venueId: createTableBookingDto.venueId,
+      venueId: createTableBookingDto.venueId ?? null,
+      eventId: createTableBookingDto.eventId ?? null,
       bookingDate: createTableBookingDto.bookingDate,
       commissionPayer,
       commissionRate,
@@ -180,6 +201,14 @@ export class TablesService {
   }
 
   async createListing(data: Partial<TableListing>): Promise<TableListing> {
+    const hasVenue = !!data.venueId;
+    const hasEvent = !!data.eventId;
+    if (hasVenue === hasEvent) {
+      // both set, or neither set — not allowed
+      throw new BadRequestException(
+        'A table listing must belong to exactly one of venueId or eventId',
+      );
+    }
     const listing = this.tableListingRepository.create(data);
     return this.tableListingRepository.save(listing);
   }

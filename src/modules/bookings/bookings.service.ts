@@ -139,7 +139,7 @@ export class BookingService {
     initiatorId: string,
     bookingData: any,
     ipAddress: string,
-  ): Promise<Booking> {
+  ): Promise<Booking & { groupBookingId: string }> {
     const platformSettings = await this.getPlatformSettings();
     const commissionRate = Number(platformSettings.commissionRate) || 0.03;
     const serviceCharge = Number(platformSettings.serviceCharge) || 400;
@@ -195,7 +195,11 @@ export class BookingService {
         ipAddress,
       });
 
-      return savedBooking;
+      // groupBookingId (the GroupBooking record's own id) is needed by the
+      // frontend for GET /bookings/group/:id and the contribute endpoint —
+      // it's a different id from the underlying Booking's id, so it has to
+      // be surfaced here explicitly.
+      return { ...savedBooking, groupBookingId: groupBooking.id } as Booking & { groupBookingId: string };
     } catch (error) {
       await queryRunner.rollbackTransaction();
       throw error;

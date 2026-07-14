@@ -97,6 +97,13 @@ export class TablesController {
     return this.tablesService.getVenueTables(venueId);
   }
 
+  @Get('event/:eventId')
+  @Roles(UserRole.CUSTOMER)
+  @ApiOperation({ summary: 'Get tables registered directly against a one-off event (no venue record)' })
+  async getEventTables(@Param('eventId') eventId: string) {
+    return this.tablesService.getEventTables(eventId);
+  }
+
   @Get(':id')
   @Roles(UserRole.CUSTOMER)
   async getBooking(@Param('id') bookingId: string) {

@@ -10,14 +10,22 @@ import { TableCategory } from '../enums';
 
 @Entity('table_listings')
 @Index('idx_table_listings_venue_id', ['venueId'])
+@Index('idx_table_listings_event_id', ['eventId'])
 @Index('idx_table_listings_category', ['category'])
 @Index('idx_table_listings_is_active', ['isActive'])
 export class TableListing {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column({ type: 'uuid' })
-  venueId: string;
+  // Exactly one of venueId / eventId is set — see migration
+  // 1782200000000-AllowEventScopedTables for the enforced constraint.
+  // venueId: recurring venue (club, lounge) — tables reused across events.
+  // eventId: one-off space (stadium, field) rented for a single event.
+  @Column({ type: 'uuid', nullable: true })
+  venueId: string | null;
+
+  @Column({ type: 'uuid', nullable: true })
+  eventId: string | null;
 
   @Column({ type: 'varchar', length: 100 })
   name: string;
