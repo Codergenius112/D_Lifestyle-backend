@@ -33,8 +33,9 @@ export class VenueService {
     return this.repo.save(venue);
   }
 
-  async findAll(params?: { city?: string; limit?: number; offset?: number }) {
+  async findAll(params?: { city?: string; limit?: number; offset?: number; activeOnly?: boolean }) {
     const qb = this.repo.createQueryBuilder('v').where('v.isDeleted = false');
+    if (params?.activeOnly) qb.andWhere('v.isActive = true');
     if (params?.city) qb.andWhere('v.city = :city', { city: params.city });
     qb.take(params?.limit ?? 50).skip(params?.offset ?? 0);
     const [data, total] = await qb.getManyAndCount();

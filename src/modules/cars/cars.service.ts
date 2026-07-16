@@ -12,6 +12,7 @@ interface CreateCarRentalDto {
   returnDate: string;
   price: number;
   driverLicense: string;
+  pickupLocation: string;
 }
 
 @Injectable()
@@ -83,6 +84,7 @@ export class CarsService {
       pickupDate: createCarRentalDto.pickupDate,
       returnDate: createCarRentalDto.returnDate,
       driverLicense: createCarRentalDto.driverLicense,
+      pickupLocation: createCarRentalDto.pickupLocation,
       cautionFee,
       commissionPayer,
       commissionRate,

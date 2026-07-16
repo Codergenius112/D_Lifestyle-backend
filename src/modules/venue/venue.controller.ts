@@ -26,18 +26,28 @@ export class VenueController {
   }
 
   @Get()
-  @Roles(UserRole.ADMIN, UserRole.MANAGER, UserRole.SUPER_ADMIN)
-  @ApiOperation({ summary: 'List venues' })
+  @Roles(UserRole.CUSTOMER, UserRole.ADMIN, UserRole.MANAGER, UserRole.SUPER_ADMIN)
+  @ApiOperation({ summary: 'List venues — customers see active venues only; staff see everything non-deleted' })
   findAll(
+    @CurrentUser() user: any,
     @Query('city') city?: string,
     @Query('limit') limit?: string,
     @Query('offset') offset?: string,
   ) {
+    const isStaff = [UserRole.ADMIN, UserRole.MANAGER, UserRole.SUPER_ADMIN].includes(user.role);
     return this.venueService.findAll({
       city,
       limit: limit ? +limit : 50,
       offset: offset ? +offset : 0,
+      activeOnly: !isStaff,
     });
+  }
+
+  @Get(':id')
+  @Roles(UserRole.CUSTOMER, UserRole.ADMIN, UserRole.MANAGER, UserRole.SUPER_ADMIN)
+  @ApiOperation({ summary: 'Get a single venue by id' })
+  findOne(@Param('id') id: string) {
+    return this.venueService.findOne(id);
   }
 
   @Patch(':id')
