@@ -17,7 +17,7 @@ interface CreateTableBookingDto {
 }
 
 @Injectable()
-export class TablesService {
+export class TicketsService {
   private readonly SINGLETON_ID = '00000000-0000-0000-0000-000000000001';
 
   constructor(
@@ -248,5 +248,68 @@ export class TablesService {
     if (!listing) throw new NotFoundException('Table listing not found');
     listing.floorPlanPosition = positionData as any;
     return this.tableListingRepository.save(listing);
+  }
+
+  async createTicket(userId: string, createTicketDto: any, ipAddress: string): Promise<Booking> {
+    const booking = this.bookingRepository.create({
+      bookingType: BookingType.TICKET,
+      userId,
+      resourceId: createTicketDto?.resourceId ?? createTicketDto?.eventId ?? createTicketDto?.ticketTypeId ?? '',
+      guestCount: createTicketDto?.guestCount ?? 1,
+      basePrice: Number(createTicketDto?.price ?? 0),
+      totalAmount: Number(createTicketDto?.price ?? 0),
+      status: BookingStatus.INITIATED,
+      paymentStatus: PaymentStatus.UNPAID,
+      metadata: {
+        eventId: createTicketDto?.eventId ?? null,
+        ticketTypeId: createTicketDto?.ticketTypeId ?? null,
+        guestName: createTicketDto?.guestName ?? null,
+        notes: createTicketDto?.notes ?? null,
+        ipAddress,
+      },
+    });
+
+    return this.bookingRepository.save(booking);
+  }
+
+  async getUserTickets(userId: string, limit = 20, offset = 0) {
+    return this.bookingRepository.findAndCount({
+      where: { userId, bookingType: BookingType.TICKET },
+      order: { createdAt: 'DESC' },
+      take: limit,
+      skip: offset,
+    });
+  }
+
+  async getTicket(ticketId: string): Promise<Booking> {
+    const ticket = await this.bookingRepository.findOne({
+      where: { id: ticketId, bookingType: BookingType.TICKET },
+    });
+
+    if (!ticket) {
+      throw new NotFoundException('Ticket not found');
+    }
+
+    return ticket;
+  }
+
+  async cancelTicket(ticketId: string, userId: string, ipAddress: string): Promise<Booking> {
+    const ticket = await this.bookingRepository.findOne({
+      where: { id: ticketId, userId, bookingType: BookingType.TICKET },
+    });
+
+    if (!ticket) {
+      throw new NotFoundException('Ticket not found');
+    }
+
+    ticket.status = BookingStatus.CANCELLED;
+    ticket.cancelledAt = new Date();
+    ticket.metadata = {
+      ...(ticket.metadata ?? {}),
+      cancelledByUser: true,
+      ipAddress,
+    };
+
+    return this.bookingRepository.save(ticket);
   }
 }
