@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Patch, Body, Param, UseGuards, HttpCode } from '@nestjs/common';
+import { Controller, Post, Get, Patch, Body, Param, Query, UseGuards, HttpCode } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -30,7 +30,7 @@ export class TicketsController {
   @Roles(UserRole.CUSTOMER)
   async getMyTickets(
     @CurrentUser() user: any,
-    @Body() query: any,
+    @Query() query: any,
   ) {
     const [tickets, total] = await this.ticketsService.getUserTickets(
       user.id,
