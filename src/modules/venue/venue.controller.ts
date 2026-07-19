@@ -31,12 +31,14 @@ export class VenueController {
   findAll(
     @CurrentUser() user: any,
     @Query('city') city?: string,
+    @Query('category') category?: string,
     @Query('limit') limit?: string,
     @Query('offset') offset?: string,
   ) {
     const isStaff = [UserRole.ADMIN, UserRole.MANAGER, UserRole.SUPER_ADMIN].includes(user.role);
     return this.venueService.findAll({
       city,
+      category,
       limit: limit ? +limit : 50,
       offset: offset ? +offset : 0,
       activeOnly: !isStaff,

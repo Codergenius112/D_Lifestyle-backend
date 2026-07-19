@@ -17,6 +17,9 @@ export class Venue {
   @Column({ type: 'varchar', length: 100 })
   city: string;
 
+  @Column({ type: 'varchar', length: 20, default: 'club' })
+  category: 'club' | 'restaurant' | 'lounge';
+
   @Column({ type: 'integer', default: 0 })
   maxCapacity: number;
 
