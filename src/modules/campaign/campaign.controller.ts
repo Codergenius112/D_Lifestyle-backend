@@ -18,6 +18,13 @@ import { UserRole } from '../../shared/enums';
 export class CampaignController {
   constructor(private readonly campaignService: CampaignService) {}
 
+  @Get('tiers')
+  @Roles(UserRole.ADMIN, UserRole.MANAGER, UserRole.SUPER_ADMIN)
+  @ApiOperation({ summary: 'List active pricing tiers (choose one when creating a campaign)' })
+  listTiers() {
+    return this.campaignService.listTiers();
+  }
+
   @Post()
   @Roles(UserRole.ADMIN, UserRole.MANAGER, UserRole.SUPER_ADMIN)
   @HttpCode(201)

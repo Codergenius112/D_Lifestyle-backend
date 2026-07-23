@@ -2,13 +2,14 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { BullModule } from '@nestjs/bull';
 import { DeviceToken } from '../../shared/entities/device-token.entity';
+import { Notification } from '../../shared/entities/notification.entity';
 import { NotificationService }   from './notifications.service';
 import { NotificationProcessor } from './notification.processor';
 import { NotificationsController } from './notifications.controller';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([DeviceToken]),
+    TypeOrmModule.forFeature([DeviceToken, Notification]),
     BullModule.registerQueue({ name: 'notifications' }),
   ],
   providers:   [NotificationService, NotificationProcessor],

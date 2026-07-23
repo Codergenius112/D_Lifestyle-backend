@@ -20,6 +20,14 @@ export class NotificationCampaign {
   @Column({ type: 'varchar', length: 50 })
   targetScope: BusinessScope | 'ALL';
 
+  @Column({ type: 'uuid', nullable: true })
+  tierId: string | null;
+
+  // Snapshotted from the tier at send time — editing a tier's price/cap
+  // later must never rewrite what a past campaign actually charged/reached.
+  @Column({ type: 'integer', nullable: true })
+  tierMaxRecipients: number | null;
+
   @Column({ type: 'varchar', length: 20, default: 'DRAFT' })
   status: 'DRAFT' | 'SENT' | 'FAILED';
 
