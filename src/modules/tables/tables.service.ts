@@ -4,7 +4,7 @@ import { Repository } from 'typeorm';
 import { Booking } from '../../shared/entities/booking.entity';
 import { TableListing } from '../../shared/entities/table-listing.entity';
 import { PlatformSettings } from '../../shared/entities/platform-settings.entity';
-import { BookingType, BookingStatus, PaymentStatus, AuditActionType, TableCategory, CommissionPayer } from '../../shared/enums';
+import { BookingType, BookingStatus, PaymentStatus, AuditActionType, CommissionPayer } from '../../shared/enums';
 import { AuditService } from '../audit/audit.service';
 
 interface CreateTableBookingDto {
@@ -40,7 +40,19 @@ export class TablesService {
   }
 
   // ── GET /tables/venue/:venueId ─────────────────────────────────────────────
+  // Matches a well-formed UUID — a malformed venueId (e.g. leftover from a
+  // different system, or manually typed by an admin) would otherwise hit
+  // Postgres's uuid column type check and throw a hard 500 error instead of
+  // gracefully returning "no tables", which is what actually broke Browse
+  // Tables for at least one real event.
+  private isValidUuid(value: string): boolean {
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+  }
+
   async getVenueTables(venueId: string) {
+    if (!venueId || !this.isValidUuid(venueId)) {
+      return { tables: [], total: 0, venueId };
+    }
     // 1. Fetch all active listings for this venue
     const listings = await this.tableListingRepository.find({
       where: { venueId, isActive: true },
@@ -54,6 +66,9 @@ export class TablesService {
   // For one-off spaces (stadiums, fields) with no permanent venue record —
   // tables are registered directly against the event instead.
   async getEventTables(eventId: string) {
+    if (!eventId || !this.isValidUuid(eventId)) {
+      return { tables: [], total: 0, eventId };
+    }
     const listings = await this.tableListingRepository.find({
       where: { eventId, isActive: true },
       order: { price: 'ASC' },
