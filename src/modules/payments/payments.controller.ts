@@ -134,24 +134,27 @@ export class PaymentsController {
   @HttpCode(200)
   @ApiOperation({ summary: 'Process a booking payment (wallet or Paystack)' })
   async processPayment(
-    @Body() body: {
-      bookingId: string;
-      amount: number;
-      method: 'wallet' | 'paystack';
-      paystackReference?: string;
-    },
-    @CurrentUser() user: any,
-    @IpAddress() ipAddress: string,
-  ) {
-    return this.paymentService.processPayment(
-      body.bookingId,
-      user.id,
-      body.amount,
-      body.method,
-      ipAddress,
-      body.paystackReference,
-    );
-  }
+  @Body() body: {
+    bookingId: string;
+    amount: number;
+    method: 'wallet' | 'paystack';
+    paystackReference?: string;
+  },
+  @CurrentUser() user: any,
+  @IpAddress() ipAddress: string,
+) {
+  console.log('[processPayment] raw body received:', JSON.stringify(body));
+  console.log('[processPayment] user from token:', JSON.stringify(user));
+
+  return this.paymentService.processPayment(
+    body.bookingId,
+    user.id,
+    body.amount,
+    body.method,
+    ipAddress,
+    body.paystackReference,
+  );
+}
 
   // ─── 6. Refund payment (admin only) ──────────────────────────────────────
   @Post('refund')
