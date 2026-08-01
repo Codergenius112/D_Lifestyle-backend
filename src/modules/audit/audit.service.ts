@@ -32,10 +32,11 @@ export class AuditService {
 
     const actorId = logData.actorId ?? 'SYSTEM';
 
-    const previous = await this.auditRepository.findOne({
-      select: ['hash'],
-      order: { timestamp: 'DESC' },
-    });
+    const [previous] = await this.auditRepository.find({
+  select: ['hash'],
+  order: { timestamp: 'DESC' },
+  take: 1,
+});
 
     const normalizedChanges = logData.changes
       ? this.normalizeObject(logData.changes)
