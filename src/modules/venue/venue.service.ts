@@ -19,6 +19,7 @@ export class UpdateVenueDto {
   @IsOptional() @IsNumber() maxCapacity?: number;
   @IsOptional() @IsArray() mediaUrls?: string[];
   @IsOptional() isActive?: boolean;
+  @IsOptional() allowWalkInOrders?: boolean;
 }
 
 @Injectable()
@@ -29,7 +30,7 @@ export class VenueService {
   ) {}
 
   async create(dto: CreateVenueDto, ownerId: string): Promise<Venue> {
-    const venue = this.repo.create({ ...dto, ownerId });
+    const venue = this.repo.create({ ...dto, ownerId, allowWalkInOrders: true });
     return this.repo.save(venue);
   }
 

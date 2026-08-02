@@ -32,6 +32,9 @@ export class Venue {
   @Column({ type: 'boolean', default: true })
   isActive: boolean;
 
+  @Column({ type: 'boolean', default: true })
+  allowWalkInOrders: boolean;
+
   @Column({ type: 'boolean', default: false })
   isDeleted: boolean;
 

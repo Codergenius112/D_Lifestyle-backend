@@ -1,6 +1,6 @@
 import {
   Controller, Get, Patch, Post, Body, Param,
-  UseGuards, HttpCode, Query,
+  UseGuards, HttpCode, Query, BadRequestException, NotFoundException,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -13,14 +13,32 @@ import { IpAddress } from '../../common/decorators/ip-address.decorator';
 import { UpdateBookingStatusDto, BookingResponseDto } from '../../shared/dtos/booking.dto';
 import { BookingService } from '../bookings/bookings.service';
 import { Booking } from '../../shared/entities/booking.entity';
+import { TableListing } from '../../shared/entities/table-listing.entity';
+import { Venue } from '../../shared/entities/venue.entity';
 import { UserRole, BookingStatus, BookingType } from '../../shared/enums';
-import { IsString, IsOptional, IsNumber, Min } from 'class-validator';
+import { IsString, IsOptional, IsNumber, Min, IsArray, IsBoolean } from 'class-validator';
+import { InventoryService } from '../inventory/inventory.service';
+import { OrderService } from '../orders/orders.service';
+
+class WalkInOrderItemDto {
+  @IsOptional() @IsString() itemId?: string;
+  @IsString() name: string;
+  @IsNumber() @Min(1) quantity: number;
+  @IsNumber() @Min(0) price: number;
+  @IsOptional() @IsString() specialInstructions?: string;
+}
 
 class WalkInBookingDto {
   @IsString() tableId: string;
   @IsString() guestName: string;
   @IsNumber() @Min(1) guestCount: number;
   @IsOptional() @IsString() notes?: string;
+  @IsOptional() @IsNumber() @Min(0) salesAmount?: number;
+  @IsOptional() @IsArray() items?: WalkInOrderItemDto[];
+  @IsOptional() @IsString() inventoryItemId?: string;
+  @IsOptional() @IsNumber() @Min(1) inventoryQuantity?: number;
+  @IsOptional() @IsString() inventoryReason?: string;
+  @IsOptional() @IsBoolean() includeDefaultOrder?: boolean;
 }
 
 @ApiTags('Admin - Bookings Management')
@@ -30,8 +48,14 @@ class WalkInBookingDto {
 export class AdminBookingsController {
   constructor(
     private bookingService: BookingService,
+    private readonly inventoryService: InventoryService,
+    private readonly orderService: OrderService,
     @InjectRepository(Booking)
     private readonly bookingRepo: Repository<Booking>,
+    @InjectRepository(TableListing)
+    private readonly tableListingRepo: Repository<TableListing>,
+    @InjectRepository(Venue)
+    private readonly venueRepo: Repository<Venue>,
   ) {}
 
   @Get()
@@ -84,10 +108,22 @@ export class AdminBookingsController {
   }
 
   @Post('tables/walk-in')
-  @Roles(UserRole.ADMIN, UserRole.MANAGER)
+  @Roles(UserRole.ADMIN, UserRole.MANAGER, UserRole.WAITER, UserRole.BAR_STAFF, UserRole.KITCHEN_STAFF, UserRole.SUPER_ADMIN)
   @HttpCode(201)
-  @ApiOperation({ summary: 'Create a manual walk-in table booking' })
-  async createWalkIn(@Body() dto: WalkInBookingDto, @CurrentUser() user: any) {
+  @ApiOperation({ summary: 'Create a manual walk-in table booking and register sales/inventory activity' })
+  async createWalkIn(@Body() dto: WalkInBookingDto, @CurrentUser() user: any, @IpAddress() ipAddress: string) {
+    const listing = await this.tableListingRepo.findOne({ where: { id: dto.tableId } });
+    if (!listing) {
+      throw new NotFoundException('Table listing not found');
+    }
+
+    if (listing.venueId) {
+      const venue = await this.venueRepo.findOne({ where: { id: listing.venueId, isDeleted: false } });
+      if (venue && !venue.allowWalkInOrders) {
+        throw new BadRequestException('Walk-in orders are disabled for this venue');
+      }
+    }
+
     const booking = this.bookingRepo.create({
       bookingType: BookingType.TABLE,
       resourceId:  dto.tableId,
@@ -96,9 +132,64 @@ export class AdminBookingsController {
       status:      BookingStatus.CONFIRMED,
       basePrice:   0,
       totalAmount: 0,
-      metadata:    { guestName: dto.guestName, notes: dto.notes, isWalkIn: true },
+      metadata:    {
+        guestName: dto.guestName,
+        notes: dto.notes,
+        isWalkIn: true,
+        createdByRole: user.role,
+      },
     });
-    return this.bookingRepo.save(booking);
+    const savedBooking = await this.bookingRepo.save(booking);
+
+    const orderItems = (dto.items ?? []).map((item) => ({
+      itemId: item.itemId ?? `${item.name}-${Date.now()}`,
+      name: item.name,
+      quantity: Number(item.quantity) || 1,
+      price: Number(item.price) || 0,
+      specialInstructions: item.specialInstructions,
+    }));
+
+    const includeDefaultOrder = dto.includeDefaultOrder !== false;
+    const defaultAmount = Number(dto.salesAmount ?? listing.price ?? 0);
+    if (includeDefaultOrder && (!orderItems.length || defaultAmount > 0)) {
+      orderItems.push({
+        itemId: 'walk-in-service',
+        name: 'Walk-in table service',
+        quantity: 1,
+        price: defaultAmount,
+        specialInstructions: undefined,
+      });
+    }
+
+    if (orderItems.length) {
+      await this.orderService.createOrder(
+        savedBooking.id,
+        user.id,
+        orderItems,
+        ipAddress,
+        {
+          type: 'table',
+          tableInfo: {
+            tableId: listing.id,
+            tableName: listing.name,
+            category: listing.category,
+            venueId: listing.venueId ?? '',
+          },
+        },
+      );
+    }
+
+    if (dto.inventoryItemId && dto.inventoryQuantity) {
+      await this.inventoryService.deduct(
+        dto.inventoryItemId,
+        Number(dto.inventoryQuantity),
+        dto.inventoryReason ?? 'Walk-in order',
+        user.id,
+        user.role,
+      );
+    }
+
+    return savedBooking;
   }
 
   @Get(':id')
