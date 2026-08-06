@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Patch, Delete, Body, Param, Query, UseGuards, HttpCode } from '@nestjs/common';
+import { Controller, Post, Get, Patch, Delete, Body, Param, Query, UseGuards, HttpCode, ForbiddenException } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -6,7 +6,8 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { IpAddress } from '../../common/decorators/ip-address.decorator';
 import { TablesService } from './tables.service';
-import { UserRole } from '../../shared/enums';
+import { UserRole, BusinessScope } from '../../shared/enums';
+import { hasBusinessScope } from '../../shared/utils/business-scope.util';
 
 @ApiTags('Tables')
 @ApiBearerAuth()
@@ -42,26 +43,36 @@ export class TablesController {
 
   @Get('listings')
   @Roles(UserRole.ADMIN, UserRole.MANAGER, UserRole.SUPER_ADMIN)
-  @ApiOperation({ summary: 'List all table listings (admin)' })
+  @ApiOperation({ summary: 'List all table listings (admin) — requires TABLE_CLUB business scope' })
   async listListings(
+    @CurrentUser() user: any,
     @Query('limit') limit = 50,
     @Query('offset') offset = 0,
     @Query('venueId') venueId?: string,
   ) {
+    if (!hasBusinessScope(user, BusinessScope.TABLE_CLUB)) {
+      return { listings: [], total: 0 };
+    }
     return this.tablesService.getAllListings(Number(limit), Number(offset), venueId);
   }
 
   @Post('listings')
   @Roles(UserRole.ADMIN, UserRole.MANAGER)
   @ApiOperation({ summary: 'Create a table listing' })
-  async createListing(@Body() data: any) {
+  async createListing(@Body() data: any, @CurrentUser() user: any) {
+    if (!hasBusinessScope(user, BusinessScope.TABLE_CLUB)) {
+      throw new ForbiddenException('You are not assigned to the table/club business.');
+    }
     return this.tablesService.createListing(data);
   }
 
   @Patch('listings/:id')
   @Roles(UserRole.ADMIN, UserRole.MANAGER)
   @ApiOperation({ summary: 'Update a table listing' })
-  async updateListing(@Param('id') id: string, @Body() data: any) {
+  async updateListing(@Param('id') id: string, @Body() data: any, @CurrentUser() user: any) {
+    if (!hasBusinessScope(user, BusinessScope.TABLE_CLUB)) {
+      throw new ForbiddenException('You are not assigned to the table/club business.');
+    }
     return this.tablesService.updateListing(id, data);
   }
 
@@ -69,7 +80,10 @@ export class TablesController {
   @Roles(UserRole.ADMIN, UserRole.MANAGER)
   @ApiOperation({ summary: 'Delete a table listing' })
   @HttpCode(204)
-  async deleteListing(@Param('id') id: string) {
+  async deleteListing(@Param('id') id: string, @CurrentUser() user: any) {
+    if (!hasBusinessScope(user, BusinessScope.TABLE_CLUB)) {
+      throw new ForbiddenException('You are not assigned to the table/club business.');
+    }
     return this.tablesService.deleteListing(id);
   }
 
@@ -78,6 +92,7 @@ export class TablesController {
   @ApiOperation({ summary: 'Update table floor plan position' })
   async updateTablePosition(
     @Param('id') id: string,
+    @CurrentUser() user: any,
     @Body() positionData: {
       x: number;
       y: number;
@@ -86,6 +101,9 @@ export class TablesController {
       height: number;
     },
   ) {
+    if (!hasBusinessScope(user, BusinessScope.TABLE_CLUB)) {
+      throw new ForbiddenException('You are not assigned to the table/club business.');
+    }
     return this.tablesService.updateTablePosition(id, positionData);
   }
 

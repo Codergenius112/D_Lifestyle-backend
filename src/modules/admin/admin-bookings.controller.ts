@@ -19,6 +19,7 @@ import { UserRole, BookingStatus, BookingType } from '../../shared/enums';
 import { IsString, IsOptional, IsNumber, Min, IsArray, IsBoolean } from 'class-validator';
 import { InventoryService } from '../inventory/inventory.service';
 import { OrderService } from '../orders/orders.service';
+import { bookingTypesForUser } from '../../shared/utils/business-scope.util';
 
 class WalkInOrderItemDto {
   @IsOptional() @IsString() itemId?: string;
@@ -60,7 +61,7 @@ export class AdminBookingsController {
 
   @Get()
   @Roles(UserRole.ADMIN, UserRole.MANAGER, UserRole.SUPER_ADMIN)
-  @ApiOperation({ summary: 'List all bookings (paginated, filtered)' })
+  @ApiOperation({ summary: 'List all bookings (paginated, filtered) — scoped to the caller\'s business unless super admin' })
   async listAllBookings(
     @Query('limit') limit = '50',
     @Query('offset') offset = '0',
@@ -69,12 +70,18 @@ export class AdminBookingsController {
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
     @Query('search') search?: string,
+    @CurrentUser() user?: any,
   ) {
     const qb = this.bookingRepo.createQueryBuilder('b')
       .leftJoinAndSelect('b.user', 'u')
       .leftJoinAndSelect('b.payments', 'p')
       .select(['b', 'u.id', 'u.firstName', 'u.lastName', 'u.email', 'p'])
       .where('b.isDeleted = false');
+
+    const allowedTypes = bookingTypesForUser(user);
+    if (allowedTypes) {
+      qb.andWhere('b.bookingType IN (:...allowedTypes)', { allowedTypes: allowedTypes.length ? allowedTypes : ['__none__'] });
+    }
 
     if (status)      qb.andWhere('b.status = :status', { status });
     if (bookingType) qb.andWhere('b.bookingType = :bookingType', { bookingType });
@@ -95,12 +102,20 @@ export class AdminBookingsController {
   async listTableBookings(
     @Query('status') status?: string,
     @Query('limit') limit = '50',
+    @CurrentUser() user?: any,
   ) {
     const qb = this.bookingRepo.createQueryBuilder('b')
       .leftJoinAndSelect('b.user', 'u')
       .select(['b', 'u.id', 'u.firstName', 'u.lastName', 'u.email'])
       .where('b.bookingType = :type', { type: BookingType.TABLE })
       .andWhere('b.isDeleted = false');
+
+    const allowedTypes = bookingTypesForUser(user);
+    if (allowedTypes && !allowedTypes.includes(BookingType.TABLE)) {
+      // Caller's business scope doesn't include tables/clubs at all.
+      return { data: [], total: 0 };
+    }
+
     if (status) qb.andWhere('b.status = :status', { status });
     qb.take(+limit).orderBy('b.createdAt', 'DESC');
     const [data, total] = await qb.getManyAndCount();
@@ -195,8 +210,13 @@ export class AdminBookingsController {
   @Get(':id')
   @Roles(UserRole.ADMIN, UserRole.MANAGER, UserRole.SUPER_ADMIN)
   @ApiOperation({ summary: 'Get booking details (admin)' })
-  async getBookingDetails(@Param('id') bookingId: string): Promise<BookingResponseDto> {
-    return this.bookingService.getBooking(bookingId);
+  async getBookingDetails(@Param('id') bookingId: string, @CurrentUser() user: any): Promise<BookingResponseDto> {
+    const booking = await this.bookingService.getBooking(bookingId);
+    const allowedTypes = bookingTypesForUser(user);
+    if (allowedTypes && !allowedTypes.includes((booking as any).bookingType)) {
+      throw new NotFoundException('Booking not found');
+    }
+    return booking;
   }
 
   @Patch(':id/status')

@@ -1,6 +1,6 @@
 import {
-  Controller, Get, Patch, Body,
-  Param, Query, UseGuards, HttpCode,
+  Controller, Get, Patch, Post, Body,
+  Param, Query, UseGuards, HttpCode, NotFoundException,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { JwtAuthGuard }            from '../../common/guards/jwt-auth.guard';
@@ -9,8 +9,11 @@ import { CurrentUser }             from '../../common/decorators/current-user.de
 import { IpAddress }               from '../../common/decorators/ip-address.decorator';
 import { SuperAdminService }       from './super-admin.service';
 import { PlatformSettingsService } from '../platform-settings/platform-settings.service';
+import { InjectRepository }        from '@nestjs/typeorm';
+import { Repository }              from 'typeorm';
+import { CampaignTier }            from '../../shared/entities/campaign-tier.entity';
 import { BusinessScope, CommissionPayer }           from '../../shared/enums';
-import { IsArray, IsEnum, IsOptional, IsNumber, Min, Max } from 'class-validator';
+import { IsArray, IsEnum, IsOptional, IsNumber, IsString, IsBoolean, Min, Max } from 'class-validator';
 
 class UpdateScopesDto {
   @IsArray() @IsEnum(BusinessScope, { each: true })
@@ -24,6 +27,19 @@ class UpdatePlatformSettingsDto {
   @IsOptional() @IsNumber() @Min(0) pushNotificationFee?: number;
 }
 
+class CreateCampaignTierDto {
+  @IsString() label: string;
+  @IsNumber() @Min(1) maxRecipients: number;
+  @IsNumber() @Min(0) price: number;
+}
+
+class UpdateCampaignTierDto {
+  @IsOptional() @IsString() label?: string;
+  @IsOptional() @IsNumber() @Min(1) maxRecipients?: number;
+  @IsOptional() @IsNumber() @Min(0) price?: number;
+  @IsOptional() @IsBoolean() isActive?: boolean;
+}
+
 @ApiTags('Super Admin')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard, SuperAdminGuard)
@@ -32,6 +48,8 @@ export class SuperAdminController {
   constructor(
     private superAdminService: SuperAdminService,
     private platformSettingsService: PlatformSettingsService,
+    @InjectRepository(CampaignTier)
+    private readonly campaignTierRepo: Repository<CampaignTier>,
   ) {}
 
   // ─── Platform Settings ────────────────────────────────────────────────────
@@ -50,6 +68,37 @@ export class SuperAdminController {
     @IpAddress() ip: string,
   ) {
     return this.platformSettingsService.updateSettings(dto, user.id, ip);
+  }
+
+  // ─── Notification Campaign Tiers (target count / pricing) ────────────────
+  @Get('campaign-tiers')
+  @ApiOperation({ summary: 'List all notification pricing tiers, including inactive ones' })
+  listCampaignTiers() {
+    return this.campaignTierRepo.find({ order: { maxRecipients: 'ASC' } });
+  }
+
+  @Get('campaign-tiers/:id')
+  @ApiOperation({ summary: 'Get one notification pricing tier' })
+  async getCampaignTier(@Param('id') id: string) {
+    return this.campaignTierRepo.findOne({ where: { id } });
+  }
+
+  @Post('campaign-tiers')
+  @HttpCode(201)
+  @ApiOperation({ summary: 'Create a new notification pricing tier (target count + price)' })
+  createCampaignTier(@Body() dto: CreateCampaignTierDto) {
+    const tier = this.campaignTierRepo.create({ ...dto, isActive: true });
+    return this.campaignTierRepo.save(tier);
+  }
+
+  @Patch('campaign-tiers/:id')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Update a notification pricing tier (target count, price, or active status)' })
+  async updateCampaignTier(@Param('id') id: string, @Body() dto: UpdateCampaignTierDto) {
+    const tier = await this.campaignTierRepo.findOne({ where: { id } });
+    if (!tier) throw new NotFoundException('Tier not found');
+    Object.assign(tier, dto);
+    return this.campaignTierRepo.save(tier);
   }
 
   // ─── Users ────────────────────────────────────────────────────────────────

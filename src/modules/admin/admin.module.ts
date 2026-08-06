@@ -15,7 +15,6 @@ import { AdminService }             from './admin.service';
 import { AdminBookingsController }  from './admin-bookings.controller';
 import { AdminOrdersController }    from './admin-orders.controller';
 import { AdminStaffController }     from './admin-staff.controller';
-import { AdminAnalyticsController } from './admin-analytics.controller';
 
 @Module({
   imports: [
@@ -33,7 +32,6 @@ import { AdminAnalyticsController } from './admin-analytics.controller';
     AdminBookingsController,
     AdminOrdersController,
     AdminStaffController,
-    AdminAnalyticsController,
   ],
   exports: [AdminService],
 })

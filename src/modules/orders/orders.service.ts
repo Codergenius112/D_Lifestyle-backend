@@ -108,7 +108,14 @@ export class OrderService {
     });
   }
 
-  async getAllOrders(limit = 50, offset = 0, businessScopes?: string[]): Promise<{ orders: Order[]; total: number }> {
+  // bookingTypes: undefined = no restriction (super admin). [] = restrict to
+  // nothing — a scoped admin with no assigned businesses must see zero
+  // orders, not all of them.
+  async getAllOrders(limit = 50, offset = 0, bookingTypes?: string[]): Promise<{ orders: Order[]; total: number }> {
+    if (bookingTypes && bookingTypes.length === 0) {
+      return { orders: [], total: 0 };
+    }
+
     const qb = this.orderRepository
       .createQueryBuilder('order')
       .leftJoinAndSelect('order.booking', 'booking')
@@ -116,25 +123,12 @@ export class OrderService {
       .take(limit)
       .skip(offset);
 
-    if (businessScopes && businessScopes.length > 0) {
-      const bookingTypes = this.mapScopesToBookingTypes(businessScopes);
-      if (bookingTypes.length > 0) {
-        qb.andWhere('booking.bookingType IN (:...types)', { types: bookingTypes });
-      }
+    if (bookingTypes) {
+      qb.andWhere('booking.bookingType IN (:...types)', { types: bookingTypes });
     }
 
     const [orders, total] = await qb.getManyAndCount();
     return { orders, total };
-  }
-
-  private mapScopesToBookingTypes(scopes: string[]): string[] {
-    const mapping: Record<string, string> = {
-      [BusinessScope.TABLE_CLUB]: BookingType.TABLE,
-      [BusinessScope.EVENT_TICKETING]: BookingType.TICKET,
-      [BusinessScope.APARTMENT]: BookingType.APARTMENT,
-      [BusinessScope.CAR_RENTAL]: BookingType.CAR,
-    };
-    return scopes.map(s => mapping[s]).filter(Boolean);
   }
 
   async getLiveOrders(): Promise<Order[]> {

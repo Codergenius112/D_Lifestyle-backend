@@ -1,10 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Between } from 'typeorm';
+import { Repository, Between, In } from 'typeorm';
 import { Booking } from '../../shared/entities/booking.entity';
 import { Order } from '../../shared/entities/order.entity';
 import { PaymentTransaction } from '../../shared/entities/payment.entity';
-import { BookingStatus, OrderStatus, PaymentStatus } from '../../shared/enums';
+import { BookingStatus, OrderStatus, BookingType } from '../../shared/enums';
 
 @Injectable()
 export class AnalyticsService {
@@ -17,14 +17,19 @@ export class AnalyticsService {
     private paymentRepository: Repository<PaymentTransaction>,
   ) {}
 
-  async getDashboardMetrics(startDate: Date, endDate: Date) {
-    const bookings = await this.bookingRepository.find({
-      where: { createdAt: Between(startDate, endDate) },
-    });
+  // bookingTypes: undefined = no restriction (super admin). [] = restrict to nothing.
+  async getDashboardMetrics(startDate: Date, endDate: Date, bookingTypes?: BookingType[]) {
+    const bookingWhere: any = { createdAt: Between(startDate, endDate) };
+    if (bookingTypes) bookingWhere.bookingType = In(bookingTypes.length ? bookingTypes : ['__none__']);
 
-    const orders = await this.orderRepository.find({
-      where: { createdAt: Between(startDate, endDate) },
-    });
+    const bookings = await this.bookingRepository.find({ where: bookingWhere });
+    const bookingIds = bookings.map((b) => b.id);
+
+    const orders = bookingTypes
+      ? (bookingIds.length
+          ? await this.orderRepository.find({ where: { createdAt: Between(startDate, endDate), bookingId: In(bookingIds) } })
+          : [])
+      : await this.orderRepository.find({ where: { createdAt: Between(startDate, endDate) } });
 
     const totalBookings     = bookings.length;
     const confirmedBookings = bookings.filter(b => b.status === BookingStatus.CONFIRMED).length;
@@ -65,10 +70,11 @@ export class AnalyticsService {
     };
   }
 
-  async getBookingAnalytics(startDate: Date, endDate: Date) {
-    const bookings = await this.bookingRepository.find({
-      where: { createdAt: Between(startDate, endDate) },
-    });
+  async getBookingAnalytics(startDate: Date, endDate: Date, bookingTypes?: BookingType[]) {
+    const where: any = { createdAt: Between(startDate, endDate) };
+    if (bookingTypes) where.bookingType = In(bookingTypes.length ? bookingTypes : ['__none__']);
+
+    const bookings = await this.bookingRepository.find({ where });
 
     const byType: Record<string, number>   = {};
     const byStatus: Record<string, number> = {};
@@ -85,10 +91,11 @@ export class AnalyticsService {
     };
   }
 
-  async getRevenueAnalytics(startDate: Date, endDate: Date) {
-    const bookings = await this.bookingRepository.find({
-      where: { createdAt: Between(startDate, endDate) },
-    });
+  async getRevenueAnalytics(startDate: Date, endDate: Date, bookingTypes?: BookingType[]) {
+    const where: any = { createdAt: Between(startDate, endDate) };
+    if (bookingTypes) where.bookingType = In(bookingTypes.length ? bookingTypes : ['__none__']);
+
+    const bookings = await this.bookingRepository.find({ where });
 
     const confirmed = bookings.filter(b =>
       [BookingStatus.CONFIRMED, BookingStatus.COMPLETED, BookingStatus.ACTIVE].includes(b.status),
@@ -107,10 +114,8 @@ export class AnalyticsService {
     };
   }
 
-  async getStaffPerformance(startDate: Date, endDate: Date) {
-    const orders = await this.orderRepository.find({
-      where: { createdAt: Between(startDate, endDate) },
-    });
+  async getStaffPerformance(startDate: Date, endDate: Date, bookingTypes?: BookingType[]) {
+    const orders = await this.scopedOrders(startDate, endDate, bookingTypes);
 
     const byWaiter: Record<string, { completed: number; total: number }> = {};
     for (const o of orders) {
@@ -123,10 +128,8 @@ export class AnalyticsService {
     return { period: { startDate, endDate }, byWaiter };
   }
 
-  async getOrderAnalytics(startDate: Date, endDate: Date) {
-    const orders = await this.orderRepository.find({
-      where: { createdAt: Between(startDate, endDate) },
-    });
+  async getOrderAnalytics(startDate: Date, endDate: Date, bookingTypes?: BookingType[]) {
+    const orders = await this.scopedOrders(startDate, endDate, bookingTypes);
 
     const byStatus: Record<string, number> = {};
     for (const o of orders) {
@@ -134,5 +137,21 @@ export class AnalyticsService {
     }
 
     return { period: { startDate, endDate }, total: orders.length, byStatus };
+  }
+
+  // Orders don't carry bookingType directly, so when scoping is required we
+  // join through the booking to filter by it.
+  private async scopedOrders(startDate: Date, endDate: Date, bookingTypes?: BookingType[]) {
+    if (!bookingTypes) {
+      return this.orderRepository.find({ where: { createdAt: Between(startDate, endDate) } });
+    }
+    if (!bookingTypes.length) return [];
+
+    return this.orderRepository
+      .createQueryBuilder('o')
+      .innerJoin('bookings', 'b', 'b.id = o."bookingId"')
+      .where('o."createdAt" BETWEEN :start AND :end', { start: startDate, end: endDate })
+      .andWhere('b."bookingType" IN (:...types)', { types: bookingTypes })
+      .getMany();
   }
 }

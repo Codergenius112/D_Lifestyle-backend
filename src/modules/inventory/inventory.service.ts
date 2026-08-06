@@ -119,11 +119,18 @@ export class InventoryService {
   }
 
   async getItems(filters: {
-    businessScope?: BusinessScope; venueId?: string; lowStockOnly?: boolean;
+    businessScope?: BusinessScope; allowedScopes?: BusinessScope[]; venueId?: string; lowStockOnly?: boolean;
     limit?: number; offset?: number;
   }) {
     const qb = this.itemRepo.createQueryBuilder('i').where('i.isDeleted = false');
-    if (filters.businessScope) qb.andWhere('i.businessScope = :s', { s: filters.businessScope });
+    // allowedScopes (derived from the caller's role) always wins over the
+    // caller-supplied businessScope query param, so a scoped admin can't
+    // request another business's inventory by changing the query string.
+    if (filters.allowedScopes) {
+      qb.andWhere('i.businessScope IN (:...scopes)', { scopes: filters.allowedScopes.length ? filters.allowedScopes : ['__none__'] });
+    } else if (filters.businessScope) {
+      qb.andWhere('i.businessScope = :s', { s: filters.businessScope });
+    }
     if (filters.venueId) qb.andWhere('i.venueId = :v', { v: filters.venueId });
     if (filters.lowStockOnly) qb.andWhere('i.currentStock <= i.lowStockThreshold');
     qb.take(filters.limit ?? 50).skip(filters.offset ?? 0);
@@ -131,11 +138,15 @@ export class InventoryService {
     return { data, total };
   }
 
-  async getLowStockItems(businessScope?: BusinessScope) {
+  async getLowStockItems(businessScope?: BusinessScope, allowedScopes?: BusinessScope[]) {
     const qb = this.itemRepo.createQueryBuilder('i')
       .where('i.isDeleted = false')
       .andWhere('i.currentStock <= i.lowStockThreshold');
-    if (businessScope) qb.andWhere('i.businessScope = :s', { s: businessScope });
+    if (allowedScopes) {
+      qb.andWhere('i.businessScope IN (:...scopes)', { scopes: allowedScopes.length ? allowedScopes : ['__none__'] });
+    } else if (businessScope) {
+      qb.andWhere('i.businessScope = :s', { s: businessScope });
+    }
     return qb.getMany();
   }
 

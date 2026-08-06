@@ -29,9 +29,10 @@ export class InventoryController {
   }
 
   @Get('items')
-  @Roles(UserRole.ADMIN, UserRole.MANAGER, UserRole.KITCHEN_STAFF, UserRole.BAR_STAFF)
-  @ApiOperation({ summary: 'List inventory items' })
+  @Roles(UserRole.ADMIN, UserRole.MANAGER, UserRole.KITCHEN_STAFF, UserRole.BAR_STAFF, UserRole.SUPER_ADMIN)
+  @ApiOperation({ summary: 'List inventory items — scoped to the caller\'s business unless super admin' })
   getItems(
+    @CurrentUser() user: any,
     @Query('businessScope') businessScope?: BusinessScope,
     @Query('venueId') venueId?: string,
     @Query('lowStockOnly') lowStockOnly?: string,
@@ -40,6 +41,7 @@ export class InventoryController {
   ) {
     return this.inventoryService.getItems({
       businessScope,
+      allowedScopes: user.role === UserRole.SUPER_ADMIN ? undefined : (user.businessScopes ?? []),
       venueId,
       lowStockOnly: lowStockOnly === 'true',
       limit: limit ? +limit : 50,
@@ -82,9 +84,12 @@ export class InventoryController {
   }
 
   @Get('alerts')
-  @Roles(UserRole.ADMIN, UserRole.MANAGER)
-  @ApiOperation({ summary: 'Get all low-stock items' })
-  getLowStock(@Query('businessScope') businessScope?: BusinessScope) {
-    return this.inventoryService.getLowStockItems(businessScope);
+  @Roles(UserRole.ADMIN, UserRole.MANAGER, UserRole.SUPER_ADMIN)
+  @ApiOperation({ summary: 'Get all low-stock items — scoped to the caller\'s business unless super admin' })
+  getLowStock(@CurrentUser() user: any, @Query('businessScope') businessScope?: BusinessScope) {
+    return this.inventoryService.getLowStockItems(
+      businessScope,
+      user.role === UserRole.SUPER_ADMIN ? undefined : (user.businessScopes ?? []),
+    );
   }
 }
