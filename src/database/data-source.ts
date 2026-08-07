@@ -22,6 +22,8 @@ import { InventoryItem }      from '../shared/entities/inventory-item.entity';
 import { InventoryTransaction } from '../shared/entities/inventory-transaction.entity';
 import { PlatformSettings }   from '../shared/entities/platform-settings.entity';
 import { NotificationCampaign } from '../shared/entities/notification-campaign.entity';
+import { CampaignTier }       from '../shared/entities/campaign-tier.entity';
+import { Notification }       from '../shared/entities/notification.entity';
 
 // ─── Validate required env vars on startup ───────────────────────────────────
 const requiredEnvVars = [
@@ -64,6 +66,8 @@ export const dataSourceOptions: DataSourceOptions = {
     InventoryTransaction,
     PlatformSettings,
     NotificationCampaign,
+    CampaignTier,
+    Notification,
   ],
 
   migrations: [__dirname + '/migrations/*{.ts,.js}'],

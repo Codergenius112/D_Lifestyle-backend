@@ -43,9 +43,16 @@ export class ContributeToGroupBookingDto {
   amount: number;
 }
 
+export enum AdminOverridableBookingStatus {
+  CONFIRMED  = 'CONFIRMED',
+  CHECKED_IN = 'CHECKED_IN',
+  COMPLETED  = 'COMPLETED',
+  CANCELLED  = 'CANCELLED',
+}
+
 export class UpdateBookingStatusDto {
-  @IsEnum(['CONFIRMED', 'CHECKED_IN', 'COMPLETED', 'CANCELLED'])
-  status: string;
+  @IsEnum(AdminOverridableBookingStatus)
+  status: AdminOverridableBookingStatus;
 
   @IsOptional()
   @IsString()
