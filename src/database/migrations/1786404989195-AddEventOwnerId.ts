@@ -19,11 +19,15 @@ export class AddEventOwnerId1786404989195 implements MigrationInterface {
       CREATE INDEX IF NOT EXISTS idx_events_owner_id ON events ("ownerId")
     `);
     // Backfill existing events from their venue's owner where possible.
+    // events.venueId is a plain varchar (not a real FK), while venues.id
+    // is uuid — cast the uuid side to text rather than the varchar side to
+    // uuid, since some venueId values may not be valid UUIDs at all (per
+    // the original "plain string key" design) and a uuid cast would throw.
     await queryRunner.query(`
       UPDATE events e
       SET "ownerId" = v."ownerId"
       FROM venues v
-      WHERE e."venueId" = v.id AND e."ownerId" IS NULL
+      WHERE e."venueId" = v.id::text AND e."ownerId" IS NULL
     `);
   }
 
