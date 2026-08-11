@@ -28,7 +28,7 @@ export class OrdersController {
     @IpAddress() ipAddress: string,
   ) {
     return this.orderService.createOrder(
-      body.bookingId,
+      { bookingId: body.bookingId },
       user.id,
       body.items,
       ipAddress,

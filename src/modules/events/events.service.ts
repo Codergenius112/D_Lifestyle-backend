@@ -15,12 +15,17 @@ export class EventsService {
     return this.eventRepo.save(event);
   }
 
-  async getEvent(eventId: string): Promise<Event> {
+  async getEvent(eventId: string, ownerId?: string | null): Promise<Event> {
     const event = await this.eventRepo.findOne({ where: { id: eventId } });
     if (!event) throw new NotFoundException('Event not found');
+    if (ownerId !== undefined && event.ownerId !== ownerId) {
+      throw new NotFoundException('Event not found');
+    }
     return event;
   }
 
+  // Public browsing — unauthenticated, unscoped by design. Customers should
+  // see every event on the platform regardless of who owns it.
   async getAllEvents(
     limit  = 50,
     offset = 0,
@@ -41,14 +46,30 @@ export class EventsService {
     return { events, total };
   }
 
-  async updateEvent(eventId: string, data: Partial<Event>): Promise<Event> {
-    await this.getEvent(eventId); // throws 404 if not found
-    await this.eventRepo.update(eventId, data);
-    return this.getEvent(eventId);
+  // Staff dashboard listing — scoped to the caller's own business unless
+  // super admin. Separate from getAllEvents so public browsing is never
+  // accidentally affected by ownership scoping.
+  async getEventsForOwner(
+    limit = 50, offset = 0, status?: string, ownerId?: string | null,
+  ): Promise<{ events: Event[]; total: number }> {
+    if (ownerId === null) return { events: [], total: 0 };
+
+    const qb = this.eventRepo.createQueryBuilder('e');
+    if (status) qb.andWhere('e.status = :status', { status });
+    if (ownerId) qb.andWhere('e."ownerId" = :ownerId', { ownerId });
+    qb.orderBy('e.startDate', 'ASC').take(limit).skip(offset);
+    const [events, total] = await qb.getManyAndCount();
+    return { events, total };
   }
 
-  async deleteEvent(eventId: string): Promise<void> {
-    await this.getEvent(eventId); // throws 404 if not found
+  async updateEvent(eventId: string, data: Partial<Event>, ownerId?: string | null): Promise<Event> {
+    await this.getEvent(eventId, ownerId); // throws 404 if not found or not owned
+    await this.eventRepo.update(eventId, data);
+    return this.getEvent(eventId, ownerId);
+  }
+
+  async deleteEvent(eventId: string, ownerId?: string | null): Promise<void> {
+    await this.getEvent(eventId, ownerId); // throws 404 if not found or not owned
     await this.eventRepo.delete(eventId);
   }
 }

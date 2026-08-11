@@ -1,6 +1,6 @@
 import {
   Controller, Get, Patch, Post,
-  Body, Param, UseGuards, HttpCode, Query,
+  Body, Param, UseGuards, HttpCode, Query, BadRequestException,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
@@ -10,29 +10,31 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { IpAddress } from '../../common/decorators/ip-address.decorator';
 import { OrderService } from '../orders/orders.service';
 import { InventoryService } from '../inventory/inventory.service';
-import { bookingTypesForUser } from '../../shared/utils/business-scope.util';
+import { bookingTypesForUser, effectiveOwnerId } from '../../shared/utils/business-scope.util';
+import { OwnershipResolverService } from '../../shared/services/ownership-resolver.service';
 import {
   UpdateOrderStatusDto,
   AssignOrderToWaiterDto,
   RouteOrderToStationDto,
 } from '../../shared/dtos/order.dto';
 import { UserRole } from '../../shared/enums';
-import { IsString, IsOptional, IsNumber, Min, IsArray } from 'class-validator';
+import { IsString, IsOptional, IsNumber, Min, IsArray, ValidateNested } from 'class-validator';
+import { Type } from 'class-transformer';
 
-class ManualPurchaseItemDto {
-  @IsOptional() @IsString() itemId?: string;
-  @IsString() name: string;
+class ManualPurchaseLineDto {
+  @IsString() itemId: string; // inventory item id — required, price/name come from inventory
   @IsNumber() @Min(1) quantity: number;
-  @IsNumber() @Min(0) price: number;
   @IsOptional() @IsString() specialInstructions?: string;
 }
 
 class ManualPurchaseDto {
-  @IsString() bookingId: string;
-  @IsArray() items: ManualPurchaseItemDto[];
-  @IsOptional() @IsString() inventoryItemId?: string;
-  @IsOptional() @IsNumber() @Min(1) inventoryQuantity?: number;
-  @IsOptional() @IsString() inventoryReason?: string;
+  @IsOptional() @IsString() bookingId?: string;
+  @IsOptional() @IsString() venueId?: string;
+  @IsOptional() @IsString() eventId?: string;
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ManualPurchaseLineDto)
+  items: ManualPurchaseLineDto[];
 }
 
 @ApiTags('Admin - Orders Management')
@@ -43,31 +45,69 @@ export class AdminOrdersController {
   constructor(
     private orderService: OrderService,
     private readonly inventoryService: InventoryService,
+    private readonly ownershipResolver: OwnershipResolverService,
   ) {}
 
   @Post('manual-purchase')
   @Roles(UserRole.ADMIN, UserRole.MANAGER, UserRole.WAITER, UserRole.BAR_STAFF, UserRole.KITCHEN_STAFF, UserRole.SUPER_ADMIN)
   @HttpCode(201)
-  @ApiOperation({ summary: 'Record a manual purchase (items) against an existing booking/table, with optional inventory deduction' })
+  @ApiOperation({
+    summary:
+      'Record a manual purchase against a booking, venue, or event (table is optional). ' +
+      'Items are looked up from inventory — price and name are never trusted from the client. ' +
+      'Every item is automatically deducted from stock; there is no separate deduction toggle.',
+  })
   async recordManualPurchase(
     @Body() dto: ManualPurchaseDto,
     @CurrentUser() user: any,
     @IpAddress() ipAddress: string,
   ) {
+    const targetCount = [dto.bookingId, dto.venueId, dto.eventId].filter(Boolean).length;
+    if (targetCount !== 1) {
+      throw new BadRequestException('Select exactly one of a table, a venue, or an event for this purchase.');
+    }
+    if (!dto.items?.length) {
+      throw new BadRequestException('Add at least one item to the purchase.');
+    }
+
+    // Resolve each line against live inventory — price and name always come
+    // from the inventory record, never from the client, so a purchase can't
+    // be recorded at a stale or tampered price. Scoped to the caller's own
+    // business so staff can't manually-purchase against another business's
+    // stock by guessing an inventory item id.
+    const ownerId = effectiveOwnerId(user);
+    const resolvedItems = [];
+    for (const line of dto.items) {
+      const invItem = await this.inventoryService.getItem(line.itemId, ownerId);
+      resolvedItems.push({
+        itemId: invItem.id,
+        name: invItem.name,
+        quantity: line.quantity,
+        price: Number(invItem.sellingPrice),
+        specialInstructions: line.specialInstructions,
+      });
+    }
+
     const order = await this.orderService.createOrder(
-      dto.bookingId,
+      { bookingId: dto.bookingId, venueId: dto.venueId, eventId: dto.eventId },
       user.id,
-      dto.items,
+      resolvedItems,
       ipAddress,
     );
 
-    if (dto.inventoryItemId && dto.inventoryQuantity) {
+    // Deduct every purchased item from stock automatically. If any item runs
+    // short, later items in the same purchase won't be deducted — but the
+    // order itself has already been recorded, so a partial-stock failure
+    // surfaces as a clear error without silently losing the sale record.
+    for (const line of resolvedItems) {
       await this.inventoryService.deduct(
-        dto.inventoryItemId,
-        Number(dto.inventoryQuantity),
-        dto.inventoryReason ?? 'Manual purchase',
+        line.itemId,
+        line.quantity,
+        `Manual purchase — order ${order.id}`,
         user.id,
         user.role,
+        undefined,
+        ownerId,
       );
     }
 
@@ -82,10 +122,17 @@ export class AdminOrdersController {
     @Query('offset') offset = 0,
     @CurrentUser() user: any,
   ) {
+    const ownerId = effectiveOwnerId(user);
+    let owned;
+    if (ownerId !== undefined) {
+      if (ownerId === null) return { orders: [], total: 0 };
+      owned = await this.ownershipResolver.getOwnedResourceIds(ownerId);
+    }
     return this.orderService.getAllOrders(
       Number(limit),
       Number(offset),
       bookingTypesForUser(user),
+      owned,
     );
   }
 

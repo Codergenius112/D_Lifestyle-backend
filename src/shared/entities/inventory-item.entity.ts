@@ -35,6 +35,14 @@ export class InventoryItem {
   @Column({ type: 'integer', default: 0 })
   lowStockThreshold: number;
 
+  @Column({ type: 'decimal', precision: 12, scale: 2, default: 0 })
+  sellingPrice: number;
+
+  // Direct owner reference — inventory can belong to an apartment/car
+  // business with no venue at all, so this can't rely on a venue join.
+  @Column({ type: 'uuid', nullable: true })
+  ownerId: string | null;
+
   @Column({ type: 'uuid', nullable: true })
   venueId: string | null;
 

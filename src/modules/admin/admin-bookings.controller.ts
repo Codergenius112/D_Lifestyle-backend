@@ -16,10 +16,12 @@ import { Booking } from '../../shared/entities/booking.entity';
 import { TableListing } from '../../shared/entities/table-listing.entity';
 import { Venue } from '../../shared/entities/venue.entity';
 import { UserRole, BookingStatus, BookingType } from '../../shared/enums';
-import { IsString, IsOptional, IsNumber, Min, IsArray, IsBoolean } from 'class-validator';
+import { IsString, IsOptional, IsNumber, Min, IsArray, IsBoolean, ValidateNested } from 'class-validator';
+import { Type } from 'class-transformer';
 import { InventoryService } from '../inventory/inventory.service';
 import { OrderService } from '../orders/orders.service';
-import { bookingTypesForUser } from '../../shared/utils/business-scope.util';
+import { bookingTypesForUser, effectiveOwnerId, applyOwnedResourceFilter } from '../../shared/utils/business-scope.util';
+import { OwnershipResolverService } from '../../shared/services/ownership-resolver.service';
 
 class WalkInOrderItemDto {
   @IsOptional() @IsString() itemId?: string;
@@ -35,7 +37,10 @@ class WalkInBookingDto {
   @IsNumber() @Min(1) guestCount: number;
   @IsOptional() @IsString() notes?: string;
   @IsOptional() @IsNumber() @Min(0) salesAmount?: number;
-  @IsOptional() @IsArray() items?: WalkInOrderItemDto[];
+  @IsOptional() @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => WalkInOrderItemDto)
+  items?: WalkInOrderItemDto[];
   @IsOptional() @IsString() inventoryItemId?: string;
   @IsOptional() @IsNumber() @Min(1) inventoryQuantity?: number;
   @IsOptional() @IsString() inventoryReason?: string;
@@ -51,6 +56,7 @@ export class AdminBookingsController {
     private bookingService: BookingService,
     private readonly inventoryService: InventoryService,
     private readonly orderService: OrderService,
+    private readonly ownershipResolver: OwnershipResolverService,
     @InjectRepository(Booking)
     private readonly bookingRepo: Repository<Booking>,
     @InjectRepository(TableListing)
@@ -81,6 +87,22 @@ export class AdminBookingsController {
     const allowedTypes = bookingTypesForUser(user);
     if (allowedTypes) {
       qb.andWhere('b.bookingType IN (:...allowedTypes)', { allowedTypes: allowedTypes.length ? allowedTypes : ['__none__'] });
+    }
+
+    // Category-level scoping (above) says "this business does table/club
+    // work"; this layer says "...and only THIS owner's specific tables,
+    // not every table/club business on the platform."
+    const ownerId = effectiveOwnerId(user);
+    if (ownerId !== undefined) {
+      if (ownerId === null) {
+        qb.andWhere('1 = 0');
+      } else {
+        const owned = await this.ownershipResolver.getOwnedResourceIds(ownerId);
+        applyOwnedResourceFilter(qb, 'b.bookingType', 'b.resourceId', owned, {
+          table: BookingType.TABLE, apartment: BookingType.APARTMENT,
+          car: BookingType.CAR, ticket: BookingType.TICKET,
+        });
+      }
     }
 
     if (status)      qb.andWhere('b.status = :status', { status });
@@ -114,6 +136,14 @@ export class AdminBookingsController {
     if (allowedTypes && !allowedTypes.includes(BookingType.TABLE)) {
       // Caller's business scope doesn't include tables/clubs at all.
       return { data: [], total: 0 };
+    }
+
+    const ownerId = effectiveOwnerId(user);
+    if (ownerId !== undefined) {
+      if (ownerId === null) return { data: [], total: 0 };
+      const owned = await this.ownershipResolver.getOwnedResourceIds(ownerId);
+      if (!owned.tableListingIds.length) return { data: [], total: 0 };
+      qb.andWhere('b."resourceId" IN (:...tableIds)', { tableIds: owned.tableListingIds });
     }
 
     if (status) qb.andWhere('b.status = :status', { status });
@@ -178,7 +208,7 @@ export class AdminBookingsController {
 
     if (orderItems.length) {
       await this.orderService.createOrder(
-        savedBooking.id,
+        { bookingId: savedBooking.id },
         user.id,
         orderItems,
         ipAddress,
@@ -216,6 +246,21 @@ export class AdminBookingsController {
     if (allowedTypes && !allowedTypes.includes((booking as any).bookingType)) {
       throw new NotFoundException('Booking not found');
     }
+
+    const ownerId = effectiveOwnerId(user);
+    if (ownerId !== undefined) {
+      if (ownerId === null) throw new NotFoundException('Booking not found');
+      const owned = await this.ownershipResolver.getOwnedResourceIds(ownerId);
+      const resourceId = (booking as any).resourceId;
+      const type = (booking as any).bookingType;
+      const ownsIt =
+        (type === BookingType.TABLE     && owned.tableListingIds.includes(resourceId)) ||
+        (type === BookingType.APARTMENT && owned.apartmentListingIds.includes(resourceId)) ||
+        (type === BookingType.CAR       && owned.carListingIds.includes(resourceId)) ||
+        (type === BookingType.TICKET    && owned.eventIds.includes(resourceId));
+      if (!ownsIt) throw new NotFoundException('Booking not found');
+    }
+
     return booking;
   }
 

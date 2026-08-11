@@ -34,30 +34,42 @@ export class VenueService {
     return this.repo.save(venue);
   }
 
-  async findAll(params?: { city?: string; category?: string; limit?: number; offset?: number; activeOnly?: boolean }) {
+  // ownerId: undefined = no restriction (customers browsing, or super admin
+  // oversight). null = restrict to nothing (staff with no linked business).
+  // Otherwise, restrict to that specific business owner's venues.
+  async findAll(params?: {
+    city?: string; category?: string; limit?: number; offset?: number;
+    activeOnly?: boolean; ownerId?: string | null;
+  }) {
+    if (params?.ownerId === null) return { data: [], total: 0 };
+
     const qb = this.repo.createQueryBuilder('v').where('v.isDeleted = false');
     if (params?.activeOnly) qb.andWhere('v.isActive = true');
     if (params?.city) qb.andWhere('v.city = :city', { city: params.city });
     if (params?.category) qb.andWhere('v.category = :category', { category: params.category });
+    if (params?.ownerId) qb.andWhere('v."ownerId" = :ownerId', { ownerId: params.ownerId });
     qb.take(params?.limit ?? 50).skip(params?.offset ?? 0);
     const [data, total] = await qb.getManyAndCount();
     return { data, total };
   }
 
-  async findOne(id: string): Promise<Venue> {
+  async findOne(id: string, ownerId?: string | null): Promise<Venue> {
     const venue = await this.repo.findOne({ where: { id, isDeleted: false } });
     if (!venue) throw new NotFoundException('Venue not found');
+    if (ownerId !== undefined && venue.ownerId !== ownerId) {
+      throw new NotFoundException('Venue not found');
+    }
     return venue;
   }
 
-  async update(id: string, dto: UpdateVenueDto): Promise<Venue> {
-    const venue = await this.findOne(id);
+  async update(id: string, dto: UpdateVenueDto, ownerId?: string | null): Promise<Venue> {
+    const venue = await this.findOne(id, ownerId);
     Object.assign(venue, dto);
     return this.repo.save(venue);
   }
 
-  async softDelete(id: string): Promise<void> {
-    const venue = await this.findOne(id);
+  async softDelete(id: string, ownerId?: string | null): Promise<void> {
+    const venue = await this.findOne(id, ownerId);
     venue.isDeleted = true;
     await this.repo.save(venue);
   }
@@ -80,8 +92,9 @@ export class VenueService {
         }>;
       };
     },
+    ownerId?: string | null,
   ): Promise<Venue> {
-    const venue = await this.findOne(id);
+    const venue = await this.findOne(id, ownerId);
     venue.hasFloorPlan = floorPlanData.hasFloorPlan;
     venue.floorPlanData = floorPlanData.floorPlanData as any;
     return this.repo.save(venue);

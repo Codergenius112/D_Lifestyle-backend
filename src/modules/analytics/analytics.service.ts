@@ -1,10 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Between, In } from 'typeorm';
+import { Repository, Between, Brackets } from 'typeorm';
 import { Booking } from '../../shared/entities/booking.entity';
 import { Order } from '../../shared/entities/order.entity';
 import { PaymentTransaction } from '../../shared/entities/payment.entity';
 import { BookingStatus, OrderStatus, BookingType } from '../../shared/enums';
+import type { OwnedResourceIds } from '../../shared/services/ownership-resolver.service';
 
 @Injectable()
 export class AnalyticsService {
@@ -17,19 +18,12 @@ export class AnalyticsService {
     private paymentRepository: Repository<PaymentTransaction>,
   ) {}
 
-  // bookingTypes: undefined = no restriction (super admin). [] = restrict to nothing.
-  async getDashboardMetrics(startDate: Date, endDate: Date, bookingTypes?: BookingType[]) {
-    const bookingWhere: any = { createdAt: Between(startDate, endDate) };
-    if (bookingTypes) bookingWhere.bookingType = In(bookingTypes.length ? bookingTypes : ['__none__']);
-
-    const bookings = await this.bookingRepository.find({ where: bookingWhere });
-    const bookingIds = bookings.map((b) => b.id);
-
-    const orders = bookingTypes
-      ? (bookingIds.length
-          ? await this.orderRepository.find({ where: { createdAt: Between(startDate, endDate), bookingId: In(bookingIds) } })
-          : [])
-      : await this.orderRepository.find({ where: { createdAt: Between(startDate, endDate) } });
+  // bookingTypes: undefined = no restriction (super admin). [] = restrict to
+  // nothing. owned: precise per-owner resource ids, layered on top of the
+  // category check — omit for super admin (no restriction).
+  async getDashboardMetrics(startDate: Date, endDate: Date, bookingTypes?: BookingType[], owned?: OwnedResourceIds) {
+    const bookings = await this.scopedBookings(startDate, endDate, bookingTypes, owned);
+    const orders   = await this.scopedOrders(startDate, endDate, bookingTypes, owned);
 
     const totalBookings     = bookings.length;
     const confirmedBookings = bookings.filter(b => b.status === BookingStatus.CONFIRMED).length;
@@ -70,11 +64,8 @@ export class AnalyticsService {
     };
   }
 
-  async getBookingAnalytics(startDate: Date, endDate: Date, bookingTypes?: BookingType[]) {
-    const where: any = { createdAt: Between(startDate, endDate) };
-    if (bookingTypes) where.bookingType = In(bookingTypes.length ? bookingTypes : ['__none__']);
-
-    const bookings = await this.bookingRepository.find({ where });
+  async getBookingAnalytics(startDate: Date, endDate: Date, bookingTypes?: BookingType[], owned?: OwnedResourceIds) {
+    const bookings = await this.scopedBookings(startDate, endDate, bookingTypes, owned);
 
     const byType: Record<string, number>   = {};
     const byStatus: Record<string, number> = {};
@@ -91,11 +82,8 @@ export class AnalyticsService {
     };
   }
 
-  async getRevenueAnalytics(startDate: Date, endDate: Date, bookingTypes?: BookingType[]) {
-    const where: any = { createdAt: Between(startDate, endDate) };
-    if (bookingTypes) where.bookingType = In(bookingTypes.length ? bookingTypes : ['__none__']);
-
-    const bookings = await this.bookingRepository.find({ where });
+  async getRevenueAnalytics(startDate: Date, endDate: Date, bookingTypes?: BookingType[], owned?: OwnedResourceIds) {
+    const bookings = await this.scopedBookings(startDate, endDate, bookingTypes, owned);
 
     const confirmed = bookings.filter(b =>
       [BookingStatus.CONFIRMED, BookingStatus.COMPLETED, BookingStatus.ACTIVE].includes(b.status),
@@ -114,8 +102,8 @@ export class AnalyticsService {
     };
   }
 
-  async getStaffPerformance(startDate: Date, endDate: Date, bookingTypes?: BookingType[]) {
-    const orders = await this.scopedOrders(startDate, endDate, bookingTypes);
+  async getStaffPerformance(startDate: Date, endDate: Date, bookingTypes?: BookingType[], owned?: OwnedResourceIds) {
+    const orders = await this.scopedOrders(startDate, endDate, bookingTypes, owned);
 
     const byWaiter: Record<string, { completed: number; total: number }> = {};
     for (const o of orders) {
@@ -128,8 +116,8 @@ export class AnalyticsService {
     return { period: { startDate, endDate }, byWaiter };
   }
 
-  async getOrderAnalytics(startDate: Date, endDate: Date, bookingTypes?: BookingType[]) {
-    const orders = await this.scopedOrders(startDate, endDate, bookingTypes);
+  async getOrderAnalytics(startDate: Date, endDate: Date, bookingTypes?: BookingType[], owned?: OwnedResourceIds) {
+    const orders = await this.scopedOrders(startDate, endDate, bookingTypes, owned);
 
     const byStatus: Record<string, number> = {};
     for (const o of orders) {
@@ -139,19 +127,100 @@ export class AnalyticsService {
     return { period: { startDate, endDate }, total: orders.length, byStatus };
   }
 
-  // Orders don't carry bookingType directly, so when scoping is required we
-  // join through the booking to filter by it.
-  private async scopedOrders(startDate: Date, endDate: Date, bookingTypes?: BookingType[]) {
-    if (!bookingTypes) {
-      return this.orderRepository.find({ where: { createdAt: Between(startDate, endDate) } });
-    }
-    if (!bookingTypes.length) return [];
+  // Category-level scoping (bookingTypes) says "this business does
+  // table/club work"; owned (if provided) narrows further to only that
+  // specific owner's resources.
+  private async scopedBookings(startDate: Date, endDate: Date, bookingTypes?: BookingType[], owned?: OwnedResourceIds) {
+    const qb = this.bookingRepository
+      .createQueryBuilder('b')
+      .where('b."createdAt" BETWEEN :start AND :end', { start: startDate, end: endDate });
 
-    return this.orderRepository
+    if (bookingTypes) {
+      qb.andWhere('b."bookingType" IN (:...types)', { types: bookingTypes.length ? bookingTypes : ['__none__'] });
+    }
+
+    if (owned) {
+      qb.andWhere(new Brackets((sub) => {
+        let addedAny = false;
+        const add = (clause: string, params: any) => {
+          addedAny ? sub.orWhere(clause, params) : sub.where(clause, params);
+          addedAny = true;
+        };
+        if (owned.tableListingIds.length) {
+          add('(b."bookingType" = :ttype AND b."resourceId" IN (:...tIds))',
+            { ttype: BookingType.TABLE, tIds: owned.tableListingIds });
+        }
+        if (owned.apartmentListingIds.length) {
+          add('(b."bookingType" = :atype AND b."resourceId" IN (:...aIds))',
+            { atype: BookingType.APARTMENT, aIds: owned.apartmentListingIds });
+        }
+        if (owned.carListingIds.length) {
+          add('(b."bookingType" = :ctype AND b."resourceId" IN (:...cIds))',
+            { ctype: BookingType.CAR, cIds: owned.carListingIds });
+        }
+        if (owned.eventIds.length) {
+          add('(b."bookingType" = :ktype AND b."resourceId" IN (:...eIds))',
+            { ktype: BookingType.TICKET, eIds: owned.eventIds });
+        }
+        if (!addedAny) sub.where('1 = 0');
+      }));
+    }
+
+    return qb.getMany();
+  }
+
+  // Orders don't always carry a bookingType directly — manual purchases can
+  // be tied to a venue or event with no booking at all. Venue-only
+  // purchases are table/club business; event-only purchases are ticketing.
+  private async scopedOrders(startDate: Date, endDate: Date, bookingTypes?: BookingType[], owned?: OwnedResourceIds) {
+    const qb = this.orderRepository
       .createQueryBuilder('o')
-      .innerJoin('bookings', 'b', 'b.id = o."bookingId"')
-      .where('o."createdAt" BETWEEN :start AND :end', { start: startDate, end: endDate })
-      .andWhere('b."bookingType" IN (:...types)', { types: bookingTypes })
-      .getMany();
+      .leftJoin('bookings', 'b', 'b.id = o."bookingId"')
+      .where('o."createdAt" BETWEEN :start AND :end', { start: startDate, end: endDate });
+
+    if (bookingTypes) {
+      if (!bookingTypes.length) return [];
+      qb.andWhere(new Brackets((sub) => {
+        sub.where('b."bookingType" IN (:...types)', { types: bookingTypes });
+        if (bookingTypes.includes(BookingType.TABLE)) {
+          sub.orWhere('o."venueId" IS NOT NULL');
+        }
+        if (bookingTypes.includes(BookingType.TICKET)) {
+          sub.orWhere('o."eventId" IS NOT NULL');
+        }
+      }));
+    }
+
+    if (owned) {
+      qb.andWhere(new Brackets((sub) => {
+        let addedAny = false;
+        const add = (clause: string, params: any) => {
+          addedAny ? sub.orWhere(clause, params) : sub.where(clause, params);
+          addedAny = true;
+        };
+        if (owned.tableListingIds.length) {
+          add('(b."bookingType" = :ttype AND b."resourceId" IN (:...tIds))',
+            { ttype: BookingType.TABLE, tIds: owned.tableListingIds });
+        }
+        if (owned.apartmentListingIds.length) {
+          add('(b."bookingType" = :atype AND b."resourceId" IN (:...aIds))',
+            { atype: BookingType.APARTMENT, aIds: owned.apartmentListingIds });
+        }
+        if (owned.carListingIds.length) {
+          add('(b."bookingType" = :ctype AND b."resourceId" IN (:...cIds))',
+            { ctype: BookingType.CAR, cIds: owned.carListingIds });
+        }
+        if (owned.eventIds.length) {
+          add('((b."bookingType" = :ktype AND b."resourceId" IN (:...eIds)) OR o."eventId" IN (:...eIds))',
+            { ktype: BookingType.TICKET, eIds: owned.eventIds });
+        }
+        if (owned.venueIds.length) {
+          add('o."venueId" IN (:...vIds)', { vIds: owned.venueIds });
+        }
+        if (!addedAny) sub.where('1 = 0');
+      }));
+    }
+
+    return qb.getMany();
   }
 }

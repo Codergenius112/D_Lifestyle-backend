@@ -16,6 +16,7 @@ export class CreateInventoryItemDto {
   @IsString() unit: string;
   @IsNumber() @Min(0) currentStock: number;
   @IsNumber() @Min(0) lowStockThreshold: number;
+  @IsOptional() @IsNumber() @Min(0) sellingPrice?: number;
   @IsEnum(BusinessScope) businessScope: BusinessScope;
   @IsOptional() @IsUUID() venueId?: string;
 }
@@ -23,6 +24,7 @@ export class CreateInventoryItemDto {
 export class UpdateInventoryItemDto {
   @IsOptional() @IsString() name?: string;
   @IsOptional() @IsNumber() @Min(0) lowStockThreshold?: number;
+  @IsOptional() @IsNumber() @Min(0) sellingPrice?: number;
   @IsOptional() isActive?: boolean;
 }
 
@@ -41,8 +43,8 @@ export class InventoryService {
     private readonly auditService: AuditService,
   ) {}
 
-  async createItem(dto: CreateInventoryItemDto, adminId: string): Promise<InventoryItem> {
-    const item = this.itemRepo.create(dto);
+  async createItem(dto: CreateInventoryItemDto, adminId: string, ownerId?: string | null): Promise<InventoryItem> {
+    const item = this.itemRepo.create({ ...dto, ownerId: ownerId ?? adminId });
     const saved = await this.itemRepo.save(item);
     await this.auditService.logAction({
       actionType: AuditActionType.INVENTORY_ITEM_CREATED,
@@ -54,16 +56,17 @@ export class InventoryService {
     return saved;
   }
 
-  async updateItem(id: string, dto: UpdateInventoryItemDto): Promise<InventoryItem> {
-    const item = await this.findItemOrThrow(id);
+  async updateItem(id: string, dto: UpdateInventoryItemDto, ownerId?: string | null): Promise<InventoryItem> {
+    const item = await this.findItemOrThrow(id, ownerId);
     Object.assign(item, dto);
     return this.itemRepo.save(item);
   }
 
   async restock(
     itemId: string, quantity: number, reason: string, actorId: string, actorRole: UserRole,
+    ownerId?: string | null,
   ): Promise<InventoryTransaction> {
-    const item = await this.findItemOrThrow(itemId);
+    const item = await this.findItemOrThrow(itemId, ownerId);
     const before = item.currentStock;
     item.currentStock += quantity;
     await this.itemRepo.save(item);
@@ -86,9 +89,9 @@ export class InventoryService {
 
   async deduct(
     itemId: string, quantity: number, reason: string, actorId: string, actorRole: UserRole,
-    categoryRestriction?: InventoryCategory,
+    categoryRestriction?: InventoryCategory, ownerId?: string | null,
   ): Promise<InventoryTransaction> {
-    const item = await this.findItemOrThrow(itemId);
+    const item = await this.findItemOrThrow(itemId, ownerId);
 
     if (categoryRestriction && item.category !== categoryRestriction) {
       throw new ForbiddenException('You can only deduct stock for your station category.');
@@ -120,8 +123,10 @@ export class InventoryService {
 
   async getItems(filters: {
     businessScope?: BusinessScope; allowedScopes?: BusinessScope[]; venueId?: string; lowStockOnly?: boolean;
-    limit?: number; offset?: number;
+    limit?: number; offset?: number; ownerId?: string | null;
   }) {
+    if (filters.ownerId === null) return { data: [], total: 0 };
+
     const qb = this.itemRepo.createQueryBuilder('i').where('i.isDeleted = false');
     // allowedScopes (derived from the caller's role) always wins over the
     // caller-supplied businessScope query param, so a scoped admin can't
@@ -131,6 +136,7 @@ export class InventoryService {
     } else if (filters.businessScope) {
       qb.andWhere('i.businessScope = :s', { s: filters.businessScope });
     }
+    if (filters.ownerId) qb.andWhere('i."ownerId" = :ownerId', { ownerId: filters.ownerId });
     if (filters.venueId) qb.andWhere('i.venueId = :v', { v: filters.venueId });
     if (filters.lowStockOnly) qb.andWhere('i.currentStock <= i.lowStockThreshold');
     qb.take(filters.limit ?? 50).skip(filters.offset ?? 0);
@@ -138,7 +144,9 @@ export class InventoryService {
     return { data, total };
   }
 
-  async getLowStockItems(businessScope?: BusinessScope, allowedScopes?: BusinessScope[]) {
+  async getLowStockItems(businessScope?: BusinessScope, allowedScopes?: BusinessScope[], ownerId?: string | null) {
+    if (ownerId === null) return [];
+
     const qb = this.itemRepo.createQueryBuilder('i')
       .where('i.isDeleted = false')
       .andWhere('i.currentStock <= i.lowStockThreshold');
@@ -147,10 +155,15 @@ export class InventoryService {
     } else if (businessScope) {
       qb.andWhere('i.businessScope = :s', { s: businessScope });
     }
+    if (ownerId) qb.andWhere('i."ownerId" = :ownerId', { ownerId });
     return qb.getMany();
   }
 
-  async getTransactionHistory(itemId: string) {
+  async getTransactionHistory(itemId: string, ownerId?: string | null) {
+    // Verifies the item belongs to the caller's business before returning
+    // its history — reuses the same ownership check as everything else.
+    await this.findItemOrThrow(itemId, ownerId);
+
     const rows = await this.txRepo.createQueryBuilder('tx')
       .leftJoin('users', 'u', 'u.id = tx."performedBy"')
       .addSelect(['u.firstName AS "performedByFirstName"',
@@ -179,9 +192,16 @@ export class InventoryService {
     }));
   }
 
-  private async findItemOrThrow(id: string): Promise<InventoryItem> {
+  async getItem(id: string, ownerId?: string | null): Promise<InventoryItem> {
+    return this.findItemOrThrow(id, ownerId);
+  }
+
+  private async findItemOrThrow(id: string, ownerId?: string | null): Promise<InventoryItem> {
     const item = await this.itemRepo.findOne({ where: { id, isDeleted: false } });
     if (!item) throw new NotFoundException('Inventory item not found');
+    if (ownerId !== undefined && item.ownerId !== ownerId) {
+      throw new NotFoundException('Inventory item not found');
+    }
     return item;
   }
 }

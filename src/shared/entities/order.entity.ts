@@ -20,11 +20,21 @@ export class Order {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column({ type: 'uuid' })
-  bookingId: string;
+  @Column({ type: 'uuid', nullable: true })
+  bookingId: string | null;
 
   @ManyToOne(() => Booking)
   booking: Booking;
+
+  // Alternative targets for manual purchases with no table/booking — e.g. a
+  // walk-up drink bought at an event without a ticket, or at a venue bar
+  // without sitting at a table. Exactly one of bookingId/venueId/eventId
+  // should be set.
+  @Column({ type: 'uuid', nullable: true })
+  venueId: string | null;
+
+  @Column({ type: 'uuid', nullable: true })
+  eventId: string | null;
 
   @Column({ type: 'uuid' })
   userId: string;

@@ -12,6 +12,7 @@ import {
 } from './inventory.service';
 import { InventoryCategory } from '../../shared/entities/inventory-item.entity';
 import { BusinessScope, UserRole } from '../../shared/enums';
+import { effectiveOwnerId } from '../../shared/utils/business-scope.util';
 
 @ApiTags('Inventory')
 @ApiBearerAuth()
@@ -23,14 +24,14 @@ export class InventoryController {
   @Post('items')
   @Roles(UserRole.ADMIN, UserRole.MANAGER)
   @HttpCode(201)
-  @ApiOperation({ summary: 'Create inventory item' })
+  @ApiOperation({ summary: "Create inventory item, owned by the caller's own business" })
   createItem(@Body() dto: CreateInventoryItemDto, @CurrentUser() user: any) {
-    return this.inventoryService.createItem(dto, user.id);
+    return this.inventoryService.createItem(dto, user.id, effectiveOwnerId(user));
   }
 
   @Get('items')
   @Roles(UserRole.ADMIN, UserRole.MANAGER, UserRole.KITCHEN_STAFF, UserRole.BAR_STAFF, UserRole.SUPER_ADMIN)
-  @ApiOperation({ summary: 'List inventory items — scoped to the caller\'s business unless super admin' })
+  @ApiOperation({ summary: "List inventory items — scoped to the caller's business unless super admin" })
   getItems(
     @CurrentUser() user: any,
     @Query('businessScope') businessScope?: BusinessScope,
@@ -46,50 +47,52 @@ export class InventoryController {
       lowStockOnly: lowStockOnly === 'true',
       limit: limit ? +limit : 50,
       offset: offset ? +offset : 0,
+      ownerId: effectiveOwnerId(user),
     });
   }
 
   @Patch('items/:id')
   @Roles(UserRole.ADMIN, UserRole.MANAGER)
-  @ApiOperation({ summary: 'Update inventory item metadata' })
-  updateItem(@Param('id') id: string, @Body() dto: UpdateInventoryItemDto) {
-    return this.inventoryService.updateItem(id, dto);
+  @ApiOperation({ summary: "Update inventory item metadata, within the caller's own business" })
+  updateItem(@Param('id') id: string, @Body() dto: UpdateInventoryItemDto, @CurrentUser() user: any) {
+    return this.inventoryService.updateItem(id, dto, effectiveOwnerId(user));
   }
 
   @Post('items/:id/restock')
   @Roles(UserRole.ADMIN, UserRole.MANAGER)
   @HttpCode(200)
-  @ApiOperation({ summary: 'Restock an inventory item' })
+  @ApiOperation({ summary: "Restock an inventory item, within the caller's own business" })
   restock(@Param('id') id: string, @Body() dto: StockActionDto, @CurrentUser() user: any) {
     const reason = dto?.reason ?? 'Reason not provided'
-    return this.inventoryService.restock(id, dto.quantity, reason, user.id, user.role);
+    return this.inventoryService.restock(id, dto.quantity, reason, user.id, user.role, effectiveOwnerId(user));
   }
   @Post('items/:id/deduct')
   @Roles(UserRole.ADMIN, UserRole.MANAGER, UserRole.KITCHEN_STAFF, UserRole.BAR_STAFF)
   @HttpCode(200)
-  @ApiOperation({ summary: 'Deduct stock from an inventory item' })
+  @ApiOperation({ summary: "Deduct stock from an inventory item, within the caller's own business" })
   deduct(@Param('id') id: string, @Body() dto: StockActionDto, @CurrentUser() user: any) {
     let categoryRestriction: InventoryCategory | undefined;
     const reason = dto?.reason ?? 'Reason not provided'
     if (user.role === UserRole.KITCHEN_STAFF) categoryRestriction = InventoryCategory.KITCHEN_INGREDIENT;
     if (user.role === UserRole.BAR_STAFF) categoryRestriction = InventoryCategory.BAR_STOCK;
-    return this.inventoryService.deduct(id, dto.quantity, reason, user.id, user.role, categoryRestriction);
+    return this.inventoryService.deduct(id, dto.quantity, reason, user.id, user.role, categoryRestriction, effectiveOwnerId(user));
   }
 
   @Get('items/:id/history')
   @Roles(UserRole.ADMIN, UserRole.MANAGER)
-  @ApiOperation({ summary: 'Get transaction history for an item' })
-  getHistory(@Param('id') id: string) {
-    return this.inventoryService.getTransactionHistory(id);
+  @ApiOperation({ summary: "Get transaction history for an item, within the caller's own business" })
+  getHistory(@Param('id') id: string, @CurrentUser() user: any) {
+    return this.inventoryService.getTransactionHistory(id, effectiveOwnerId(user));
   }
 
   @Get('alerts')
   @Roles(UserRole.ADMIN, UserRole.MANAGER, UserRole.SUPER_ADMIN)
-  @ApiOperation({ summary: 'Get all low-stock items — scoped to the caller\'s business unless super admin' })
+  @ApiOperation({ summary: "Get all low-stock items — scoped to the caller's business unless super admin" })
   getLowStock(@CurrentUser() user: any, @Query('businessScope') businessScope?: BusinessScope) {
     return this.inventoryService.getLowStockItems(
       businessScope,
       user.role === UserRole.SUPER_ADMIN ? undefined : (user.businessScopes ?? []),
+      effectiveOwnerId(user),
     );
   }
 }

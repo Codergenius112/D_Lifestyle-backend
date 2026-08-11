@@ -41,6 +41,13 @@ export class User {
   @Column({ type: 'simple-array', nullable: true }) // ← NEW
   businessScopes: BusinessScope[] | null;
 
+  // For staff (Manager/Waiter/Bar/Kitchen/Door), points at the ADMIN user
+  // who owns the business they work for. For a business owner themselves,
+  // their own id is implicitly their business owner id — no row needed.
+  // Null for super admin and unassigned accounts.
+  @Column({ type: 'uuid', nullable: true })
+  businessOwnerId: string | null;
+
   @Column({ type: 'timestamp', nullable: true })
   lastLoginAt: Date;
 

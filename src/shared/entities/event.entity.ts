@@ -25,6 +25,11 @@ export class Event {
   @Column({ type: 'varchar', length: 100, nullable: true })
   venueId: string;
 
+  // Direct owner reference — events can now be created independent of a
+  // venue (one-off events), so ownership can't rely on venue.ownerId alone.
+  @Column({ type: 'uuid', nullable: true })
+  ownerId: string | null;
+
   @Column({ type: 'timestamp' })
   startDate: Date;
 

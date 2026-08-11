@@ -5,10 +5,11 @@ import { Order } from '../../shared/entities/order.entity';
 import { PaymentTransaction } from '../../shared/entities/payment.entity';
 import { AnalyticsService } from './analytics.service';
 import { AnalyticsController } from './analytics.controller';
+import { OwnershipResolverService } from '../../shared/services/ownership-resolver.service';
 
 @Module({
   imports: [TypeOrmModule.forFeature([Booking, Order, PaymentTransaction])],
-  providers: [AnalyticsService],
+  providers: [AnalyticsService, OwnershipResolverService],
   controllers: [AnalyticsController],
   exports: [AnalyticsService],
 })

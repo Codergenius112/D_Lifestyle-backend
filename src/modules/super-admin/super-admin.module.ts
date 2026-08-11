@@ -10,6 +10,7 @@ import { SuperAdminController }   from './super-admin.controller';
 import { AuditModule }            from '../audit/audit.module';
 import { AnalyticsModule }        from '../analytics/analytics.module';
 import { PlatformSettingsModule } from '../platform-settings/platform-settings.module';
+import { AdminModule }            from '../admin/admin.module';
 
 @Module({
   imports: [
@@ -17,6 +18,7 @@ import { PlatformSettingsModule } from '../platform-settings/platform-settings.m
     AuditModule,
     AnalyticsModule,
     PlatformSettingsModule,
+    AdminModule,
   ],
   providers:   [SuperAdminService],
   controllers: [SuperAdminController],

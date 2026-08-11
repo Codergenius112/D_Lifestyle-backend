@@ -29,6 +29,10 @@ export interface GetApartmentListingsQuery {
   bedrooms?: number;
   limit?: number;
   offset?: number;
+  // undefined = no restriction (public catalog / super admin). null =
+  // restrict to nothing. Otherwise scope to a specific business owner.
+  ownerId?: string | null;
+  activeOnly?: boolean;
 }
 
 @Injectable()
@@ -40,11 +44,21 @@ export class ApartmentListingsService {
 
   /**
    * GET /apartments/listings
-   * Returns all active listings with optional filters.
+   * Public: all active listings. Staff (ownerId provided): only their own
+   * business's listings, active or not.
    */
   async getListings(query: GetApartmentListingsQuery): Promise<{ listings: ApartmentListing[]; total: number }> {
-    const qb = this.listingRepository.createQueryBuilder('listing')
-      .where('listing.isActive = :isActive', { isActive: true });
+    if (query.ownerId === null) return { listings: [], total: 0 };
+
+    const qb = this.listingRepository.createQueryBuilder('listing');
+    if (query.activeOnly !== false) {
+      qb.where('listing.isActive = :isActive', { isActive: true });
+    } else {
+      qb.where('1=1');
+    }
+    if (query.ownerId) {
+      qb.andWhere('listing."managedBy" = :ownerId', { ownerId: query.ownerId });
+    }
 
     if (query.city) {
       qb.andWhere('LOWER(listing.city) LIKE :city', { city: `%${query.city.toLowerCase()}%` });
@@ -71,11 +85,14 @@ export class ApartmentListingsService {
    * GET /apartments/listings/:id
    * Returns a single listing by ID.
    */
-  async getListing(id: string): Promise<ApartmentListing> {
+  async getListing(id: string, ownerId?: string | null): Promise<ApartmentListing> {
     const listing = await this.listingRepository.findOne({
       where: { id, isActive: true },
     });
     if (!listing) {
+      throw new NotFoundException(`Apartment listing ${id} not found`);
+    }
+    if (ownerId !== undefined && listing.managedBy !== ownerId) {
       throw new NotFoundException(`Apartment listing ${id} not found`);
     }
     return listing;
@@ -97,9 +114,12 @@ export class ApartmentListingsService {
   /**
    * PATCH /apartments/listings/:id  (admin/manager only)
    */
-  async updateListing(id: string, dto: UpdateApartmentListingDto): Promise<ApartmentListing> {
+  async updateListing(id: string, dto: UpdateApartmentListingDto, ownerId?: string | null): Promise<ApartmentListing> {
     const listing = await this.listingRepository.findOne({ where: { id } });
     if (!listing) {
+      throw new NotFoundException(`Apartment listing ${id} not found`);
+    }
+    if (ownerId !== undefined && listing.managedBy !== ownerId) {
       throw new NotFoundException(`Apartment listing ${id} not found`);
     }
     Object.assign(listing, dto);
@@ -109,9 +129,12 @@ export class ApartmentListingsService {
   /**
    * DELETE /apartments/listings/:id  (admin only) — soft delete via isActive flag
    */
-  async deactivateListing(id: string): Promise<{ success: boolean }> {
+  async deactivateListing(id: string, ownerId?: string | null): Promise<{ success: boolean }> {
     const listing = await this.listingRepository.findOne({ where: { id } });
     if (!listing) {
+      throw new NotFoundException(`Apartment listing ${id} not found`);
+    }
+    if (ownerId !== undefined && listing.managedBy !== ownerId) {
       throw new NotFoundException(`Apartment listing ${id} not found`);
     }
     listing.isActive = false;

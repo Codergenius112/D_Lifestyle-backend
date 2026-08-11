@@ -9,6 +9,7 @@ import { CurrentUser }             from '../../common/decorators/current-user.de
 import { IpAddress }               from '../../common/decorators/ip-address.decorator';
 import { SuperAdminService }       from './super-admin.service';
 import { PlatformSettingsService } from '../platform-settings/platform-settings.service';
+import { AdminService } from '../admin/admin.service';
 import { InjectRepository }        from '@nestjs/typeorm';
 import { Repository }              from 'typeorm';
 import { CampaignTier }            from '../../shared/entities/campaign-tier.entity';
@@ -20,11 +21,13 @@ class UpdateScopesDto {
   scopes: BusinessScope[];
 }
 
-class UpdatePlatformSettingsDto {
-  @IsOptional() @IsNumber() @Min(0) serviceCharge?: number;
-  @IsOptional() @IsNumber() @Min(0) @Max(1) commissionRate?: number;
-  @IsOptional() @IsEnum(CommissionPayer) commissionPayer?: CommissionPayer;
-  @IsOptional() @IsNumber() @Min(0) pushNotificationFee?: number;
+class OnboardBusinessOwnerDto {
+  @IsString() email: string;
+  @IsString() firstName: string;
+  @IsString() lastName: string;
+  @IsOptional() @IsString() phone?: string;
+  @IsOptional() @IsString() password?: string;
+  @IsArray() @IsEnum(BusinessScope, { each: true }) businessScopes: BusinessScope[];
 }
 
 class CreateCampaignTierDto {
@@ -48,27 +51,26 @@ export class SuperAdminController {
   constructor(
     private superAdminService: SuperAdminService,
     private platformSettingsService: PlatformSettingsService,
+    private adminService: AdminService,
     @InjectRepository(CampaignTier)
     private readonly campaignTierRepo: Repository<CampaignTier>,
   ) {}
 
-  // ─── Platform Settings ────────────────────────────────────────────────────
-  @Get('settings')
-  @ApiOperation({ summary: 'Get platform settings' })
-  getSettings() {
-    return this.platformSettingsService.getSettings();
+  // ─── Business Owners ────────────────────────────────────────────────────────
+  @Post('business-owners')
+  @HttpCode(201)
+  @ApiOperation({ summary: 'Onboard a new business owner (Admin role) with one or more business scopes' })
+  onboardBusinessOwner(
+    @Body() dto: OnboardBusinessOwnerDto,
+    @CurrentUser() user: any,
+    @IpAddress() ipAddress: string,
+  ) {
+    return this.adminService.onboardBusinessOwner(dto, user.id, ipAddress);
   }
 
-  @Patch('settings')
-  @HttpCode(200)
-  @ApiOperation({ summary: 'Update platform settings (unified)' })
-  updateSettings(
-    @Body() dto: UpdatePlatformSettingsDto,
-    @CurrentUser() user: any,
-    @IpAddress() ip: string,
-  ) {
-    return this.platformSettingsService.updateSettings(dto, user.id, ip);
-  }
+  // Note: GET/PATCH platform settings live in PlatformSettingsController
+  // (super-admin/settings) — not duplicated here to avoid two controllers
+  // racing to own the same route (see AdminAnalyticsController removal).
 
   // ─── Notification Campaign Tiers (target count / pricing) ────────────────
   @Get('campaign-tiers')

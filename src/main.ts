@@ -9,6 +9,12 @@ import { AppModule } from './app.module';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, { rawBody: true });
 
+  // Railway (and most PaaS platforms) terminate TLS at a proxy in front of
+  // this app, so req.protocol would otherwise always report 'http'. This
+  // makes Express trust the X-Forwarded-Proto header so generated URLs
+  // (e.g. uploaded file URLs) come back as https.
+  app.getHttpAdapter().getInstance().set('trust proxy', 1);
+
   // ── Raw body ONLY for Paystack webhook — must come before json middleware ──
   // express.raw() captures the body as a Buffer, which is required for
   // HMAC-SHA512 signature verification in PaystackWebhookController.

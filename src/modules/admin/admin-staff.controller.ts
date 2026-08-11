@@ -11,7 +11,13 @@ import { IpAddress }    from '../../common/decorators/ip-address.decorator';
 import { AddStaffDto, UpdateStaffRoleDto } from '../../shared/dtos/admin.dto';
 import { AdminService } from './admin.service';
 import { UserRole } from '../../shared/enums';
+import { effectiveOwnerId } from '../../shared/utils/business-scope.util';
 
+// Staff management is for a business owner (or their manager) managing
+// their own business's staff. Super admin is a pure overseer — it can list
+// staff for visibility, but does not create/edit/deactivate staff itself;
+// that's the business owner's job. Owning a business is a separate,
+// super-admin-only flow (see SuperAdminController.onboardBusinessOwner).
 @ApiTags('Admin - Staff Management')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -21,8 +27,9 @@ export class AdminStaffController {
 
   @Get()
   @Roles(UserRole.ADMIN, UserRole.MANAGER, UserRole.SUPER_ADMIN)
-  @ApiOperation({ summary: 'List all staff' })
+  @ApiOperation({ summary: "List staff — scoped to the caller's own business unless super admin" })
   async listStaff(
+    @CurrentUser() user: any,
     @Query('limit') limit = '50',
     @Query('offset') offset = '0',
     @Query('search') search?: string,
@@ -30,32 +37,33 @@ export class AdminStaffController {
   ) {
     return this.adminService.listStaff({
       limit: +limit, offset: +offset, search, role: role as UserRole,
+      ownerId: effectiveOwnerId(user),
     });
   }
 
   @Get(':id')
   @Roles(UserRole.ADMIN, UserRole.MANAGER, UserRole.SUPER_ADMIN)
   @ApiOperation({ summary: 'Get staff details' })
-  async getStaffDetails(@Param('id') staffId: string) {
-    return this.adminService.getStaffDetails(staffId);
+  async getStaffDetails(@Param('id') staffId: string, @CurrentUser() user: any) {
+    return this.adminService.getStaffDetails(staffId, effectiveOwnerId(user));
   }
 
   @Post()
-  @Roles(UserRole.ADMIN, UserRole.MANAGER, UserRole.SUPER_ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.MANAGER)
   @HttpCode(201)
-  @ApiOperation({ summary: 'Add new staff member' })
+  @ApiOperation({ summary: "Add a new staff member (Manager/Waiter/Bar/Kitchen/Door) to the caller's own business" })
   async addStaff(
     @Body() addStaffDto: AddStaffDto,
     @CurrentUser() user: any,
     @IpAddress() ipAddress: string,
   ) {
-    return this.adminService.addStaff(addStaffDto, user.id, ipAddress);
+    return this.adminService.addStaff(addStaffDto, user, ipAddress);
   }
 
   @Patch(':id/role')
-  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.MANAGER)
   @HttpCode(200)
-  @ApiOperation({ summary: 'Update staff role' })
+  @ApiOperation({ summary: "Update a staff member's role, within the caller's own business" })
   async updateStaffRole(
     @Param('id') staffId: string,
     @Body() updateRoleDto: UpdateStaffRoleDto,
@@ -63,19 +71,19 @@ export class AdminStaffController {
     @IpAddress() ipAddress: string,
   ) {
     return this.adminService.updateStaffRole(
-      staffId, updateRoleDto.role as UserRole, user.id, ipAddress,
+      staffId, updateRoleDto.role as UserRole, user, effectiveOwnerId(user), ipAddress,
     );
   }
 
   @Delete(':id')
-  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.MANAGER)
   @HttpCode(200)
-  @ApiOperation({ summary: 'Deactivate a staff member' })
+  @ApiOperation({ summary: "Deactivate a staff member, within the caller's own business" })
   async deactivateStaff(
     @Param('id') staffId: string,
     @CurrentUser() user: any,
     @IpAddress() ipAddress: string,
   ) {
-    return this.adminService.deactivateStaff(staffId, user.id, ipAddress);
+    return this.adminService.deactivateStaff(staffId, user, effectiveOwnerId(user), ipAddress);
   }
 }

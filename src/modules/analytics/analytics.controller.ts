@@ -6,14 +6,32 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { AnalyticsService } from './analytics.service';
 import { UserRole } from '../../shared/enums';
-import { bookingTypesForUser } from '../../shared/utils/business-scope.util';
+import { bookingTypesForUser, effectiveOwnerId } from '../../shared/utils/business-scope.util';
+import { OwnershipResolverService, OwnedResourceIds } from '../../shared/services/ownership-resolver.service';
+
+const EMPTY_OWNED: OwnedResourceIds = {
+  tableListingIds: [], apartmentListingIds: [], carListingIds: [], eventIds: [], venueIds: [],
+};
 
 @ApiTags('Analytics')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('admin/analytics')
 export class AnalyticsController {
-  constructor(private analyticsService: AnalyticsService) {}
+  constructor(
+    private analyticsService: AnalyticsService,
+    private readonly ownershipResolver: OwnershipResolverService,
+  ) {}
+
+  // Resolves precise per-owner resource scoping on top of the category
+  // check. undefined = no restriction (super admin). EMPTY_OWNED = caller
+  // has no linked business, matches nothing.
+  private async resolveOwned(user: any): Promise<OwnedResourceIds | undefined> {
+    const ownerId = effectiveOwnerId(user);
+    if (ownerId === undefined) return undefined;
+    if (ownerId === null) return EMPTY_OWNED;
+    return this.ownershipResolver.getOwnedResourceIds(ownerId);
+  }
 
   @Get('dashboard')
   @Roles(UserRole.ADMIN, UserRole.MANAGER, UserRole.SUPER_ADMIN)
@@ -22,6 +40,7 @@ export class AnalyticsController {
       new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
       new Date(),
       bookingTypesForUser(user),
+      await this.resolveOwned(user),
     );
   }
 
@@ -32,7 +51,9 @@ export class AnalyticsController {
     @Query('endDate') endDate: string,
     @CurrentUser() user: any,
   ) {
-    return this.analyticsService.getBookingAnalytics(new Date(startDate), new Date(endDate), bookingTypesForUser(user));
+    return this.analyticsService.getBookingAnalytics(
+      new Date(startDate), new Date(endDate), bookingTypesForUser(user), await this.resolveOwned(user),
+    );
   }
 
   @Get('revenue')
@@ -42,7 +63,9 @@ export class AnalyticsController {
     @Query('endDate') endDate: string,
     @CurrentUser() user: any,
   ) {
-    return this.analyticsService.getRevenueAnalytics(new Date(startDate), new Date(endDate), bookingTypesForUser(user));
+    return this.analyticsService.getRevenueAnalytics(
+      new Date(startDate), new Date(endDate), bookingTypesForUser(user), await this.resolveOwned(user),
+    );
   }
 
   @Get('orders')
@@ -52,7 +75,9 @@ export class AnalyticsController {
     @Query('endDate') endDate: string,
     @CurrentUser() user: any,
   ) {
-    return this.analyticsService.getOrderAnalytics(new Date(startDate), new Date(endDate), bookingTypesForUser(user));
+    return this.analyticsService.getOrderAnalytics(
+      new Date(startDate), new Date(endDate), bookingTypesForUser(user), await this.resolveOwned(user),
+    );
   }
 
   @Get('staff-performance')
@@ -62,6 +87,8 @@ export class AnalyticsController {
     @Query('endDate') endDate: string,
     @CurrentUser() user: any,
   ) {
-    return this.analyticsService.getStaffPerformance(new Date(startDate), new Date(endDate), bookingTypesForUser(user));
+    return this.analyticsService.getStaffPerformance(
+      new Date(startDate), new Date(endDate), bookingTypesForUser(user), await this.resolveOwned(user),
+    );
   }
 }

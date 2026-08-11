@@ -1,11 +1,12 @@
 import {
-  Controller, Post, UploadedFile, UploadedFiles,
+  Controller, Post, Req, UploadedFile, UploadedFiles,
   UseInterceptors, UseGuards, BadRequestException,
 } from '@nestjs/common';
 import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiConsumes } from '@nestjs/swagger';
 import { diskStorage } from 'multer';
 import { extname } from 'path';
+import type { Request } from 'express';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { UserRole } from '../../shared/enums';
@@ -44,6 +45,21 @@ const fileFilter = (req: any, file: Express.Multer.File, cb: any) => {
   cb(null, true);
 };
 
+// Railway (and most PaaS platforms) sit behind a proxy that terminates TLS,
+// so req.protocol reports 'http' unless we trust the X-Forwarded-Proto
+// header. `app.set('trust proxy', 1)` in main.ts makes Express read that
+// header correctly, and this falls back to API_URL/localhost only for
+// local dev with no request context.
+function resolveBaseUrl(req?: Request): string {
+  if (req) {
+    const forwardedProto = (req.headers['x-forwarded-proto'] as string)?.split(',')[0];
+    const protocol = forwardedProto || req.protocol || 'https';
+    const host = req.get('host');
+    if (host) return `${protocol}://${host}`;
+  }
+  return process.env.API_URL || 'http://localhost:3000';
+}
+
 @ApiTags('Uploads')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard)
@@ -60,12 +76,12 @@ export class UploadsController {
   )
   @ApiConsumes('multipart/form-data')
   @ApiOperation({ summary: 'Upload a single image or video' })
-  uploadSingle(@UploadedFile() file: Express.Multer.File) {
+  uploadSingle(@UploadedFile() file: Express.Multer.File, @Req() req: Request) {
     if (!file) {
       throw new BadRequestException('No file uploaded');
     }
 
-    const baseUrl = process.env.API_URL || 'http://localhost:3000';
+    const baseUrl = resolveBaseUrl(req);
     return {
       url: `${baseUrl}/uploads/${file.filename}`,
       filename: file.filename,
@@ -86,12 +102,12 @@ export class UploadsController {
   )
   @ApiConsumes('multipart/form-data')
   @ApiOperation({ summary: 'Upload multiple images or videos' })
-  uploadMultiple(@UploadedFiles() files: Express.Multer.File[]) {
+  uploadMultiple(@UploadedFiles() files: Express.Multer.File[], @Req() req: Request) {
     if (!files || files.length === 0) {
       throw new BadRequestException('No files uploaded');
     }
 
-    const baseUrl = process.env.API_URL || 'http://localhost:3000';
+    const baseUrl = resolveBaseUrl(req);
     return files.map(file => ({
       url: `${baseUrl}/uploads/${file.filename}`,
       filename: file.filename,

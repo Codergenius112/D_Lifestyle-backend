@@ -15,6 +15,7 @@ import { AdminService }             from './admin.service';
 import { AdminBookingsController }  from './admin-bookings.controller';
 import { AdminOrdersController }    from './admin-orders.controller';
 import { AdminStaffController }     from './admin-staff.controller';
+import { OwnershipResolverService } from '../../shared/services/ownership-resolver.service';
 
 @Module({
   imports: [
@@ -27,12 +28,12 @@ import { AdminStaffController }     from './admin-staff.controller';
     AuditModule,
     NotificationsModule,
   ],
-  providers:   [AdminService],
+  providers:   [AdminService, OwnershipResolverService],
   controllers: [
     AdminBookingsController,
     AdminOrdersController,
     AdminStaffController,
   ],
-  exports: [AdminService],
+  exports: [AdminService, OwnershipResolverService],
 })
 export class AdminModule {}

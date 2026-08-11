@@ -11,6 +11,7 @@ import { IpAddress } from '../../common/decorators/ip-address.decorator';
 import { CarsService } from './cars.service';
 import { CarListingsService } from './car-listings.service';
 import { UserRole } from '../../shared/enums';
+import { effectiveOwnerId } from '../../shared/utils/business-scope.util';
 
 @ApiTags('Cars')
 @ApiBearerAuth()
@@ -26,6 +27,7 @@ export class CarsController {
   @Get('listings')
   @Roles(UserRole.CUSTOMER, UserRole.ADMIN, UserRole.MANAGER, UserRole.SUPER_ADMIN)
   async getListings(
+    @CurrentUser() user: any,
     @Query('city') city?: string,
     @Query('minPrice') minPrice?: string,
     @Query('maxPrice') maxPrice?: string,
@@ -35,6 +37,7 @@ export class CarsController {
     @Query('limit') limit?: string,
     @Query('offset') offset?: string,
   ) {
+    const isStaff = [UserRole.ADMIN, UserRole.MANAGER, UserRole.SUPER_ADMIN].includes(user.role);
     return this.carListingsService.getListings({
       city,
       minPrice: minPrice ? Number(minPrice) : undefined,
@@ -44,36 +47,40 @@ export class CarsController {
       withDriver: withDriver !== undefined ? withDriver === 'true' : undefined,
       limit: limit ? Number(limit) : 20,
       offset: offset ? Number(offset) : 0,
+      ownerId: isStaff ? effectiveOwnerId(user) : undefined,
+      activeOnly: !isStaff,
     });
   }
 
  
   @Get('listings/:id')
   @Roles(UserRole.CUSTOMER, UserRole.ADMIN, UserRole.MANAGER, UserRole.SUPER_ADMIN)
-  async getListing(@Param('id') id: string) {
-    return this.carListingsService.getListing(id);
+  async getListing(@Param('id') id: string, @CurrentUser() user: any) {
+    const isStaff = [UserRole.ADMIN, UserRole.MANAGER, UserRole.SUPER_ADMIN].includes(user.role);
+    return this.carListingsService.getListing(id, isStaff ? effectiveOwnerId(user) : undefined);
   }
 
   
   @Post('listings')
   @Roles(UserRole.ADMIN, UserRole.MANAGER)
   @HttpCode(201)
-  async createListing(@Body() dto: any) {
-    return this.carListingsService.createListing(dto);
+  async createListing(@Body() dto: any, @CurrentUser() user: any) {
+    // Stamp the actual business owner, not whoever clicked create.
+    return this.carListingsService.createListing({ ...dto, managedBy: effectiveOwnerId(user) });
   }
 
  
   @Patch('listings/:id')
   @Roles(UserRole.ADMIN, UserRole.MANAGER)
-  async updateListing(@Param('id') id: string, @Body() dto: any) {
-    return this.carListingsService.updateListing(id, dto);
+  async updateListing(@Param('id') id: string, @Body() dto: any, @CurrentUser() user: any) {
+    return this.carListingsService.updateListing(id, dto, effectiveOwnerId(user));
   }
 
 
   @Delete('listings/:id')
   @Roles(UserRole.ADMIN)
-  async deactivateListing(@Param('id') id: string) {
-    return this.carListingsService.deactivateListing(id);
+  async deactivateListing(@Param('id') id: string, @CurrentUser() user: any) {
+    return this.carListingsService.deactivateListing(id, effectiveOwnerId(user));
   }
 
 

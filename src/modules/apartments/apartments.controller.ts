@@ -11,6 +11,7 @@ import { IpAddress }    from '../../common/decorators/ip-address.decorator';
 import { ApartmentsService }        from './apartments.service';
 import { ApartmentListingsService } from './apartments-listings.services';
 import { UserRole } from '../../shared/enums';
+import { effectiveOwnerId } from '../../shared/utils/business-scope.util';
 
 @ApiTags('Apartments')
 @ApiBearerAuth()
@@ -24,8 +25,9 @@ export class ApartmentsController {
 
   @Get('listings')
   @Roles(UserRole.CUSTOMER, UserRole.ADMIN, UserRole.MANAGER, UserRole.SUPER_ADMIN)
-  @ApiOperation({ summary: 'List apartment listings' })
+  @ApiOperation({ summary: 'List apartment listings — customers see the public catalog; staff see their own business only, unless super admin' })
   async getListings(
+    @CurrentUser() user: any,
     @Query('city') city?: string,
     @Query('minPrice') minPrice?: string,
     @Query('maxPrice') maxPrice?: string,
@@ -33,6 +35,7 @@ export class ApartmentsController {
     @Query('limit') limit?: string,
     @Query('offset') offset?: string,
   ) {
+    const isStaff = [UserRole.ADMIN, UserRole.MANAGER, UserRole.SUPER_ADMIN].includes(user.role);
     return this.apartmentListingsService.getListings({
       city,
       minPrice: minPrice ? Number(minPrice) : undefined,
@@ -40,36 +43,41 @@ export class ApartmentsController {
       bedrooms: bedrooms ? Number(bedrooms) : undefined,
       limit:  limit  ? Number(limit)  : 20,
       offset: offset ? Number(offset) : 0,
+      ownerId: isStaff ? effectiveOwnerId(user) : undefined,
+      activeOnly: !isStaff,
     });
   }
 
   @Get('listings/:id')
   @Roles(UserRole.CUSTOMER, UserRole.ADMIN, UserRole.MANAGER, UserRole.SUPER_ADMIN)
   @ApiOperation({ summary: 'Get apartment listing by ID' })
-  async getListing(@Param('id') id: string) {
-    return this.apartmentListingsService.getListing(id);
+  async getListing(@Param('id') id: string, @CurrentUser() user: any) {
+    const isStaff = [UserRole.ADMIN, UserRole.MANAGER, UserRole.SUPER_ADMIN].includes(user.role);
+    return this.apartmentListingsService.getListing(id, isStaff ? effectiveOwnerId(user) : undefined);
   }
 
   @Post('listings')
   @Roles(UserRole.ADMIN, UserRole.MANAGER)
   @HttpCode(201)
-  @ApiOperation({ summary: 'Create apartment listing (admin)' })
+  @ApiOperation({ summary: 'Create apartment listing, owned by the caller\'s own business' })
   async createListing(@Body() dto: any, @CurrentUser() user: any) {
-    return this.apartmentListingsService.createListing({ ...dto, managedBy: user.id });
+    // Stamp the actual business owner, not whoever clicked create — a
+    // manager creating a listing shouldn't become its owner themselves.
+    return this.apartmentListingsService.createListing({ ...dto, managedBy: effectiveOwnerId(user) });
   }
 
   @Patch('listings/:id')
   @Roles(UserRole.ADMIN, UserRole.MANAGER)
-  @ApiOperation({ summary: 'Update apartment listing (admin)' })
-  async updateListing(@Param('id') id: string, @Body() dto: any) {
-    return this.apartmentListingsService.updateListing(id, dto);
+  @ApiOperation({ summary: 'Update apartment listing, within the caller\'s own business' })
+  async updateListing(@Param('id') id: string, @Body() dto: any, @CurrentUser() user: any) {
+    return this.apartmentListingsService.updateListing(id, dto, effectiveOwnerId(user));
   }
 
   @Delete('listings/:id')
   @Roles(UserRole.ADMIN)
-  @ApiOperation({ summary: 'Soft-delete apartment listing (admin)' })
-  async deactivateListing(@Param('id') id: string) {
-    return this.apartmentListingsService.deactivateListing(id);
+  @ApiOperation({ summary: 'Soft-delete apartment listing, within the caller\'s own business' })
+  async deactivateListing(@Param('id') id: string, @CurrentUser() user: any) {
+    return this.apartmentListingsService.deactivateListing(id, effectiveOwnerId(user));
   }
 
   // ─── Customer booking endpoints ───────────────────────────────────────────

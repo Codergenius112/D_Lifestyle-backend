@@ -6,8 +6,11 @@ import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard }   from '../../common/guards/roles.guard';
 import { Roles }        from '../../common/decorators/roles.decorator';
+import { CurrentUser }  from '../../common/decorators/current-user.decorator';
 import { EventsService } from './events.service';
+import { CreateEventDto, UpdateEventDto } from '../../shared/dtos/event.dto';
 import { UserRole }     from '../../shared/enums';
+import { effectiveOwnerId } from '../../shared/utils/business-scope.util';
 
 @ApiTags('Events')
 @Controller('events')
@@ -15,20 +18,21 @@ export class EventsController {
   constructor(private eventsService: EventsService) {}
 
   /**
-   * POST /events — admin/manager only
+   * POST /events — admin/manager only. Owned by the caller's own business.
    */
   @Post()
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.MANAGER)
+  @Roles(UserRole.ADMIN, UserRole.MANAGER)
   @HttpCode(201)
-  async createEvent(@Body() dto: any) {
-    return this.eventsService.createEvent(dto);
+  async createEvent(@Body() dto: CreateEventDto, @CurrentUser() user: any) {
+    return this.eventsService.createEvent({ ...(dto as any), ownerId: effectiveOwnerId(user) });
   }
 
   /**
    * GET /events?limit=50&offset=0&status=active&venueId=xxx
-   * Public — frontend calls this on Home and Discover screens
+   * Public — unauthenticated, unscoped by design. Frontend calls this on
+   * Home and Discover screens; every customer should see every event.
    */
   @Get()
   async getAllEvents(
@@ -46,6 +50,30 @@ export class EventsController {
   }
 
   /**
+   * GET /events/mine — staff dashboard listing, scoped to the caller's own
+   * business unless super admin. Deliberately a separate route from the
+   * public GET / above so ownership scoping never touches public browsing.
+   * Must be declared before GET /:id so 'mine' isn't parsed as an id.
+   */
+  @Get('mine')
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.MANAGER, UserRole.SUPER_ADMIN)
+  async getMyEvents(
+    @CurrentUser() user: any,
+    @Query('limit')  limit?:  string,
+    @Query('offset') offset?: string,
+    @Query('status') status?: string,
+  ) {
+    return this.eventsService.getEventsForOwner(
+      limit  ? parseInt(limit,  10) : 50,
+      offset ? parseInt(offset, 10) : 0,
+      status,
+      effectiveOwnerId(user),
+    );
+  }
+
+  /**
    * GET /events/:id — public
    */
   @Get(':id')
@@ -54,25 +82,25 @@ export class EventsController {
   }
 
   /**
-   * PATCH /events/:id — admin/manager only
+   * PATCH /events/:id — admin/manager only, within the caller's own business
    */
   @Patch(':id')
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.MANAGER)
-  async updateEvent(@Param('id') eventId: string, @Body() dto: any) {
-    return this.eventsService.updateEvent(eventId, dto);
+  @Roles(UserRole.ADMIN, UserRole.MANAGER)
+  async updateEvent(@Param('id') eventId: string, @Body() dto: UpdateEventDto, @CurrentUser() user: any) {
+    return this.eventsService.updateEvent(eventId, dto as any, effectiveOwnerId(user));
   }
 
   /**
-   * DELETE /events/:id — admin only
+   * DELETE /events/:id — admin only, within the caller's own business
    */
   @Delete(':id')
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  @Roles(UserRole.ADMIN)
   @HttpCode(204)
-  async deleteEvent(@Param('id') eventId: string) {
-    await this.eventsService.deleteEvent(eventId);
+  async deleteEvent(@Param('id') eventId: string, @CurrentUser() user: any) {
+    await this.eventsService.deleteEvent(eventId, effectiveOwnerId(user));
   }
 }

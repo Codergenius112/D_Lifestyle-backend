@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { createHash } from 'crypto';
 import { AuditLog } from '../../shared/entities/audit-log.entity';
+import { User } from '../../shared/entities/user.entity';
 import { AuditActionType, UserRole } from '../../shared/enums';
 
 const MAX_LIMIT = 200;
@@ -22,6 +23,8 @@ export class AuditService {
   constructor(
     @InjectRepository(AuditLog)
     private readonly auditRepository: Repository<AuditLog>,
+    @InjectRepository(User)
+    private readonly userRepository: Repository<User>,
   ) {}
 
   // ================= LOG ACTION =================
@@ -31,6 +34,21 @@ export class AuditService {
     }
 
     const actorId = logData.actorId ?? 'SYSTEM';
+
+    // Denormalize the actor's display name so the audit trail is
+    // human-readable without needing a join, and survives even if the user
+    // is later renamed or deleted.
+    let actorName: string | null = null;
+    if (actorId !== 'SYSTEM') {
+      const actor = await this.userRepository.findOne({
+        where: { id: actorId },
+        select: ['id', 'firstName', 'lastName', 'email'],
+      });
+      if (actor) {
+        const fullName = [actor.firstName, actor.lastName].filter(Boolean).join(' ').trim();
+        actorName = fullName || actor.email;
+      }
+    }
 
     const [previous] = await this.auditRepository.find({
   select: ['hash'],
@@ -57,6 +75,7 @@ export class AuditService {
 
     const auditLog: AuditLog = this.auditRepository.create({
       ...payload,
+      actorName,
       hash,
     });
 

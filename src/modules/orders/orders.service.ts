@@ -1,6 +1,6 @@
 import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, Brackets } from 'typeorm';
 import { Order } from '../../shared/entities/order.entity';
 import { OrderStatus, AuditActionType, BusinessScope, BookingType } from '../../shared/enums';
 import { AuditService } from '../audit/audit.service';
@@ -14,7 +14,7 @@ export class OrderService {
   ) {}
 
   async createOrder(
-    bookingId: string,
+    target: { bookingId?: string | null; venueId?: string | null; eventId?: string | null },
     userId: string,
     items: any[],
     ipAddress: string,
@@ -33,13 +33,22 @@ export class OrderService {
       throw new BadRequestException('Order must contain at least one item');
     }
 
+    const targetCount = [target.bookingId, target.venueId, target.eventId].filter(Boolean).length;
+    if (targetCount !== 1) {
+      throw new BadRequestException(
+        'Order must be tied to exactly one of a booking, a venue, or an event',
+      );
+    }
+
     const totalAmount = items.reduce(
       (sum, item) => sum + Number(item.price) * Number(item.quantity),
       0,
     );
 
     const order = new Order();
-    order.bookingId   = bookingId;
+    order.bookingId   = target.bookingId ?? null;
+    order.venueId     = target.venueId ?? null;
+    order.eventId     = target.eventId ?? null;
     order.userId      = userId;
     order.items       = items;
     order.totalAmount = totalAmount;
@@ -111,7 +120,10 @@ export class OrderService {
   // bookingTypes: undefined = no restriction (super admin). [] = restrict to
   // nothing — a scoped admin with no assigned businesses must see zero
   // orders, not all of them.
-  async getAllOrders(limit = 50, offset = 0, bookingTypes?: string[]): Promise<{ orders: Order[]; total: number }> {
+  async getAllOrders(
+    limit = 50, offset = 0, bookingTypes?: string[],
+    owned?: { tableListingIds: string[]; apartmentListingIds: string[]; carListingIds: string[]; eventIds: string[]; venueIds: string[] },
+  ): Promise<{ orders: Order[]; total: number }> {
     if (bookingTypes && bookingTypes.length === 0) {
       return { orders: [], total: 0 };
     }
@@ -124,7 +136,50 @@ export class OrderService {
       .skip(offset);
 
     if (bookingTypes) {
-      qb.andWhere('booking.bookingType IN (:...types)', { types: bookingTypes });
+      // A manual purchase with no booking (venueId/eventId only) has no
+      // booking.bookingType to filter on directly. Venue-only purchases are
+      // table/club business; event-only purchases are ticketing business.
+      qb.andWhere(new Brackets((sub) => {
+        sub.where('booking.bookingType IN (:...types)', { types: bookingTypes });
+        if (bookingTypes.includes(BookingType.TABLE)) {
+          sub.orWhere('order.venueId IS NOT NULL');
+        }
+        if (bookingTypes.includes(BookingType.TICKET)) {
+          sub.orWhere('order.eventId IS NOT NULL');
+        }
+      }));
+    }
+
+    // Category-level scoping (above) says "this business does table/club
+    // work"; this layer says "...and only THIS owner's specific resources."
+    if (owned) {
+      qb.andWhere(new Brackets((sub) => {
+        let addedAny = false;
+        const add = (clause: string, params: any) => {
+          addedAny ? sub.orWhere(clause, params) : sub.where(clause, params);
+          addedAny = true;
+        };
+        if (owned.tableListingIds.length) {
+          add('(booking."bookingType" = :ttype AND booking."resourceId" IN (:...tIds))',
+            { ttype: BookingType.TABLE, tIds: owned.tableListingIds });
+        }
+        if (owned.apartmentListingIds.length) {
+          add('(booking."bookingType" = :atype AND booking."resourceId" IN (:...aIds))',
+            { atype: BookingType.APARTMENT, aIds: owned.apartmentListingIds });
+        }
+        if (owned.carListingIds.length) {
+          add('(booking."bookingType" = :ctype AND booking."resourceId" IN (:...cIds))',
+            { ctype: BookingType.CAR, cIds: owned.carListingIds });
+        }
+        if (owned.eventIds.length) {
+          add('((booking."bookingType" = :ktype AND booking."resourceId" IN (:...eIds)) OR order."eventId" IN (:...eIds))',
+            { ktype: BookingType.TICKET, eIds: owned.eventIds });
+        }
+        if (owned.venueIds.length) {
+          add('order."venueId" IN (:...vIds)', { vIds: owned.venueIds });
+        }
+        if (!addedAny) sub.where('1 = 0');
+      }));
     }
 
     const [orders, total] = await qb.getManyAndCount();
