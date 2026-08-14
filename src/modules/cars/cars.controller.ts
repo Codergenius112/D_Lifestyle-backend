@@ -9,7 +9,7 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { IpAddress } from '../../common/decorators/ip-address.decorator';
 import { CarsService } from './cars.service';
-import { CarListingsService } from './car-listings.service';
+import { CarListingsService, CreateCarListingDto, UpdateCarListingDto } from './car-listings.service';
 import { UserRole } from '../../shared/enums';
 import { effectiveOwnerId } from '../../shared/utils/business-scope.util';
 
@@ -64,7 +64,7 @@ export class CarsController {
   @Post('listings')
   @Roles(UserRole.ADMIN, UserRole.MANAGER)
   @HttpCode(201)
-  async createListing(@Body() dto: any, @CurrentUser() user: any) {
+  async createListing(@Body() dto: CreateCarListingDto, @CurrentUser() user: any) {
     // Stamp the actual business owner, not whoever clicked create.
     return this.carListingsService.createListing({ ...dto, managedBy: effectiveOwnerId(user) });
   }
@@ -72,7 +72,7 @@ export class CarsController {
  
   @Patch('listings/:id')
   @Roles(UserRole.ADMIN, UserRole.MANAGER)
-  async updateListing(@Param('id') id: string, @Body() dto: any, @CurrentUser() user: any) {
+  async updateListing(@Param('id') id: string, @Body() dto: UpdateCarListingDto, @CurrentUser() user: any) {
     return this.carListingsService.updateListing(id, dto, effectiveOwnerId(user));
   }
 

@@ -2,28 +2,55 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { CarListing } from '../../shared/entities/car-listing.entity';
+import {
+  IsString, IsOptional, IsNumber, Min, IsArray, ArrayMinSize, IsBoolean,
+} from 'class-validator';
 
-export interface CreateCarListingDto {
-  make: string;
-  model: string;
-  year: number;
-  color: string;
-  plateNumber: string;
-  transmission: string;
-  category: string;
-  seats: number;
-  pricePerDay: number;
-  description: string;
-  features?: string[];
-  images?: string[];
-  city: string;
-  state: string;
-  withDriver?: boolean;
-  managedBy?: string;
+// Was previously a plain interface, which NestJS's ValidationPipe cannot
+// validate at all (interfaces are erased at runtime) — the controller took
+// `@Body() dto: any`, so car listing creation had zero field validation.
+// Converted to a real class-validator DTO.
+export class CreateCarListingDto {
+  @IsString() make: string;
+  @IsString() model: string;
+  @IsNumber() year: number;
+  @IsString() color: string;
+  @IsString() plateNumber: string;
+  @IsString() transmission: string;
+  @IsString() category: string;
+  @IsNumber() @Min(1) seats: number;
+  @IsNumber() @Min(0) pricePerDay: number;
+  @IsOptional() @IsNumber() @Min(0) cautionFee?: number;
+  @IsOptional() @IsBoolean() cautionFeeRefundable?: boolean;
+  @IsString() description: string;
+  @IsOptional() @IsArray() features?: string[];
+  @IsArray() @ArrayMinSize(1, { message: 'At least one image is required' }) images: string[];
+  @IsString() city: string;
+  @IsString() state: string;
+  @IsOptional() @IsBoolean() withDriver?: boolean;
+  @IsOptional() @IsString() managedBy?: string | null;
 }
 
-export interface UpdateCarListingDto extends Partial<CreateCarListingDto> {
-  isActive?: boolean;
+export class UpdateCarListingDto {
+  @IsOptional() @IsString() make?: string;
+  @IsOptional() @IsString() model?: string;
+  @IsOptional() @IsNumber() year?: number;
+  @IsOptional() @IsString() color?: string;
+  @IsOptional() @IsString() plateNumber?: string;
+  @IsOptional() @IsString() transmission?: string;
+  @IsOptional() @IsString() category?: string;
+  @IsOptional() @IsNumber() @Min(1) seats?: number;
+  @IsOptional() @IsNumber() @Min(0) pricePerDay?: number;
+  @IsOptional() @IsNumber() @Min(0) cautionFee?: number;
+  @IsOptional() @IsBoolean() cautionFeeRefundable?: boolean;
+  @IsOptional() @IsString() description?: string;
+  @IsOptional() @IsArray() features?: string[];
+  @IsOptional() @IsArray() images?: string[];
+  @IsOptional() @IsString() city?: string;
+  @IsOptional() @IsString() state?: string;
+  @IsOptional() @IsBoolean() withDriver?: boolean;
+  @IsOptional() @IsString() managedBy?: string | null;
+  @IsOptional() isActive?: boolean;
 }
 
 export interface GetCarListingsQuery {

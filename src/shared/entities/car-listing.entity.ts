@@ -74,7 +74,7 @@ export class CarListing {
   isDeleted: boolean;
 
   @Column({ type: 'uuid', nullable: true })
-  managedBy: string;
+  managedBy: string | null;
 
   @CreateDateColumn()
   createdAt: Date;

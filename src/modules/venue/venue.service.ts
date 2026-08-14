@@ -2,14 +2,14 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Venue } from '../../shared/entities/venue.entity';
-import { IsString, IsOptional, IsNumber, IsArray } from 'class-validator';
+import { IsString, IsOptional, IsNumber, IsArray, ArrayMinSize } from 'class-validator';
 
 export class CreateVenueDto {
   @IsString() name: string;
   @IsString() address: string;
   @IsString() city: string;
   @IsNumber() maxCapacity: number;
-  @IsOptional() @IsArray() mediaUrls?: string[];
+  @IsArray() @ArrayMinSize(1, { message: 'At least one image is required' }) mediaUrls: string[];
 }
 
 export class UpdateVenueDto {

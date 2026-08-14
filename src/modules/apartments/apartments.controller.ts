@@ -9,7 +9,7 @@ import { Roles }        from '../../common/decorators/roles.decorator';
 import { CurrentUser }  from '../../common/decorators/current-user.decorator';
 import { IpAddress }    from '../../common/decorators/ip-address.decorator';
 import { ApartmentsService }        from './apartments.service';
-import { ApartmentListingsService } from './apartments-listings.services';
+import { ApartmentListingsService, CreateApartmentListingDto, UpdateApartmentListingDto } from './apartments-listings.services';
 import { UserRole } from '../../shared/enums';
 import { effectiveOwnerId } from '../../shared/utils/business-scope.util';
 
@@ -60,7 +60,7 @@ export class ApartmentsController {
   @Roles(UserRole.ADMIN, UserRole.MANAGER)
   @HttpCode(201)
   @ApiOperation({ summary: 'Create apartment listing, owned by the caller\'s own business' })
-  async createListing(@Body() dto: any, @CurrentUser() user: any) {
+  async createListing(@Body() dto: CreateApartmentListingDto, @CurrentUser() user: any) {
     // Stamp the actual business owner, not whoever clicked create — a
     // manager creating a listing shouldn't become its owner themselves.
     return this.apartmentListingsService.createListing({ ...dto, managedBy: effectiveOwnerId(user) });
@@ -69,7 +69,7 @@ export class ApartmentsController {
   @Patch('listings/:id')
   @Roles(UserRole.ADMIN, UserRole.MANAGER)
   @ApiOperation({ summary: 'Update apartment listing, within the caller\'s own business' })
-  async updateListing(@Param('id') id: string, @Body() dto: any, @CurrentUser() user: any) {
+  async updateListing(@Param('id') id: string, @Body() dto: UpdateApartmentListingDto, @CurrentUser() user: any) {
     return this.apartmentListingsService.updateListing(id, dto, effectiveOwnerId(user));
   }
 

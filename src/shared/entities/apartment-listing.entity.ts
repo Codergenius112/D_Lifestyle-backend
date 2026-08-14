@@ -62,7 +62,7 @@ export class ApartmentListing {
   isDeleted: boolean;
 
   @Column({ type: 'uuid', nullable: true })
-  managedBy: string;
+  managedBy: string | null;
 
   @CreateDateColumn()
   createdAt: Date;

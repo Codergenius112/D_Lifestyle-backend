@@ -2,24 +2,49 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ApartmentListing } from '../../shared/entities/apartment-listing.entity';
+import {
+  IsString, IsOptional, IsNumber, Min, IsArray, ArrayMinSize, IsBoolean,
+} from 'class-validator';
 
-export interface CreateApartmentListingDto {
-  name: string;
-  description: string;
-  address: string;
-  city: string;
-  state: string;
-  pricePerNight: number;
-  bedrooms: number;
-  bathrooms: number;
-  maxGuests: number;
-  amenities?: string[];
-  images?: string[];
-  managedBy?: string;
+// Was previously a plain interface, which NestJS's ValidationPipe cannot
+// validate at all (interfaces are erased at runtime) — the controller took
+// `@Body() dto: any`, so apartment listing creation had zero field
+// validation. Converted to a real class-validator DTO.
+export class CreateApartmentListingDto {
+  @IsString() name: string;
+  @IsString() description: string;
+  @IsString() address: string;
+  @IsString() city: string;
+  @IsString() state: string;
+  @IsNumber() @Min(0) pricePerNight: number;
+  @IsNumber() @Min(0) bedrooms: number;
+  @IsNumber() @Min(0) bathrooms: number;
+  @IsNumber() @Min(1) maxGuests: number;
+  @IsOptional() @IsNumber() @Min(0) cautionFee?: number;
+  @IsOptional() @IsBoolean() cautionFeeRefundable?: boolean;
+  @IsOptional() @IsString() houseRules?: string;
+  @IsOptional() @IsArray() amenities?: string[];
+  @IsArray() @ArrayMinSize(1, { message: 'At least one image is required' }) images: string[];
+  @IsOptional() @IsString() managedBy?: string | null;
 }
 
-export interface UpdateApartmentListingDto extends Partial<CreateApartmentListingDto> {
-  isActive?: boolean;
+export class UpdateApartmentListingDto {
+  @IsOptional() @IsString() name?: string;
+  @IsOptional() @IsString() description?: string;
+  @IsOptional() @IsString() address?: string;
+  @IsOptional() @IsString() city?: string;
+  @IsOptional() @IsString() state?: string;
+  @IsOptional() @IsNumber() @Min(0) pricePerNight?: number;
+  @IsOptional() @IsNumber() @Min(0) bedrooms?: number;
+  @IsOptional() @IsNumber() @Min(0) bathrooms?: number;
+  @IsOptional() @IsNumber() @Min(1) maxGuests?: number;
+  @IsOptional() @IsNumber() @Min(0) cautionFee?: number;
+  @IsOptional() @IsBoolean() cautionFeeRefundable?: boolean;
+  @IsOptional() @IsString() houseRules?: string;
+  @IsOptional() @IsArray() amenities?: string[];
+  @IsOptional() @IsArray() images?: string[];
+  @IsOptional() @IsString() managedBy?: string | null;
+  @IsOptional() isActive?: boolean;
 }
 
 export interface GetApartmentListingsQuery {

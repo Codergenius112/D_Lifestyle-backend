@@ -1,6 +1,6 @@
 import {
   IsString, IsNotEmpty, IsOptional, IsDateString,
-  IsInt, Min, IsArray, IsNumber, IsEnum, ArrayMaxSize,
+  IsInt, Min, IsArray, IsNumber, IsEnum, ArrayMaxSize, ArrayMinSize,
 } from 'class-validator';
 import { CommissionPayer } from '../enums';
 
@@ -35,8 +35,8 @@ export class CreateEventDto {
   @IsOptional() @IsNumber() @Min(0)
   ticketPrice?: number;
 
-  @IsOptional() @IsArray() @IsString({ each: true })
-  images?: string[];
+  @IsArray() @ArrayMinSize(1, { message: 'At least one image is required' }) @IsString({ each: true })
+  images: string[];
 
   @IsOptional() @IsEnum(CommissionPayer)
   commissionPayer?: CommissionPayer;
