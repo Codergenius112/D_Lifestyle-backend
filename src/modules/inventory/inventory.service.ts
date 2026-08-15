@@ -23,6 +23,8 @@ export class CreateInventoryItemDto {
 
 export class UpdateInventoryItemDto {
   @IsOptional() @IsString() name?: string;
+  @IsOptional() @IsString() unit?: string;
+  @IsOptional() @IsNumber() @Min(0) currentStock?: number;
   @IsOptional() @IsNumber() @Min(0) lowStockThreshold?: number;
   @IsOptional() @IsNumber() @Min(0) sellingPrice?: number;
   @IsOptional() isActive?: boolean;
@@ -51,15 +53,41 @@ export class InventoryService {
       actorId: adminId,
       resourceType: 'inventory_item',
       resourceId: saved.id,
+      resourceName: saved.name,
       changes: { after: dto },
     });
     return saved;
   }
 
-  async updateItem(id: string, dto: UpdateInventoryItemDto, ownerId?: string | null): Promise<InventoryItem> {
+  async updateItem(
+    id: string,
+    dto: UpdateInventoryItemDto,
+    actorId: string,
+    ownerId?: string | null,
+  ): Promise<InventoryItem> {
     const item = await this.findItemOrThrow(id, ownerId);
+    const before = {
+      name: item.name,
+      unit: item.unit,
+      currentStock: item.currentStock,
+      lowStockThreshold: item.lowStockThreshold,
+      sellingPrice: item.sellingPrice,
+      isActive: (item as any).isActive,
+    };
+
     Object.assign(item, dto);
-    return this.itemRepo.save(item);
+    const saved = await this.itemRepo.save(item);
+
+    await this.auditService.logAction({
+      actionType: AuditActionType.INVENTORY_ITEM_UPDATED,
+      actorId,
+      resourceType: 'inventory_item',
+      resourceId: saved.id,
+      resourceName: saved.name,
+      changes: { before, after: dto },
+    });
+
+    return saved;
   }
 
   async restock(
@@ -81,6 +109,7 @@ export class InventoryService {
     await this.auditService.logAction({
       actionType: AuditActionType.INVENTORY_RESTOCKED,
       actorId, resourceType: 'inventory_item', resourceId: itemId,
+      resourceName: item.name,
       changes: { quantity, balanceBefore: before, balanceAfter: item.currentStock },
     });
 
@@ -115,6 +144,7 @@ export class InventoryService {
     await this.auditService.logAction({
       actionType: AuditActionType.INVENTORY_DEDUCTED,
       actorId, resourceType: 'inventory_item', resourceId: itemId,
+      resourceName: item.name,
       changes: { quantity, balanceBefore: before, balanceAfter: item.currentStock },
     });
 
@@ -128,9 +158,6 @@ export class InventoryService {
     if (filters.ownerId === null) return { data: [], total: 0 };
 
     const qb = this.itemRepo.createQueryBuilder('i').where('i.isDeleted = false');
-    // allowedScopes (derived from the caller's role) always wins over the
-    // caller-supplied businessScope query param, so a scoped admin can't
-    // request another business's inventory by changing the query string.
     if (filters.allowedScopes) {
       qb.andWhere('i.businessScope IN (:...scopes)', { scopes: filters.allowedScopes.length ? filters.allowedScopes : ['__none__'] });
     } else if (filters.businessScope) {
@@ -160,8 +187,6 @@ export class InventoryService {
   }
 
   async getTransactionHistory(itemId: string, ownerId?: string | null) {
-    // Verifies the item belongs to the caller's business before returning
-    // its history — reuses the same ownership check as everything else.
     await this.findItemOrThrow(itemId, ownerId);
 
     const rows = await this.txRepo.createQueryBuilder('tx')

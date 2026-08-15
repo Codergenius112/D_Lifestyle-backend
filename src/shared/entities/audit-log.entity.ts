@@ -27,6 +27,9 @@ export class AuditLog {
   @Column({ type: 'uuid', nullable: true })
   resourceId: string;
 
+  @Column({ type: 'varchar', length: 200, nullable: true })
+  resourceName: string | null;
+
   @Column({ type: 'jsonb', nullable: true })
   changes: Record<string, any>;
 
@@ -35,7 +38,7 @@ export class AuditLog {
 
   @CreateDateColumn()
   timestamp: Date;
-  
+
   @Column({ type: 'varchar', nullable: true })
   prevHash: string | null;
 

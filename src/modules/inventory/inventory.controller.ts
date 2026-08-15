@@ -55,7 +55,7 @@ export class InventoryController {
   @Roles(UserRole.ADMIN, UserRole.MANAGER)
   @ApiOperation({ summary: "Update inventory item metadata, within the caller's own business" })
   updateItem(@Param('id') id: string, @Body() dto: UpdateInventoryItemDto, @CurrentUser() user: any) {
-    return this.inventoryService.updateItem(id, dto, effectiveOwnerId(user));
+    return this.inventoryService.updateItem(id, dto, user.id, effectiveOwnerId(user));
   }
 
   @Post('items/:id/restock')

@@ -14,6 +14,7 @@ export interface LogActionInput {
   actorRole?: UserRole;      // optional
   resourceType?: string;
   resourceId?: string;
+  resourceName?: string;
   changes?: Record<string, any>;
   ipAddress?: string;
 }
@@ -66,6 +67,7 @@ export class AuditService {
       actorRole: logData.actorRole,
       resourceType: logData.resourceType,
       resourceId: logData.resourceId,
+      resourceName: logData.resourceName,
       changes: normalizedChanges,
       ipAddress: logData.ipAddress,
       prevHash: previous?.hash,
