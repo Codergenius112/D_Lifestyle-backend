@@ -83,6 +83,33 @@ export class AuditService {
   }
 
   // ================= AUDIT TRAIL =================
+  // Business-wide: every action taken by the owner or any of their staff.
+  // ownerId undefined = no restriction (not used here, always called with
+  // a real id or null). ownerId null = caller has no linked business.
+  async getBusinessAuditTrail(
+    ownerId: string | null | undefined,
+    limit = 50,
+    offset = 0,
+  ): Promise<{ data: AuditLog[]; total: number; limit: number; offset: number }> {
+    limit = Math.min(Number(limit), MAX_LIMIT);
+    offset = Math.max(Number(offset), 0);
+
+    if (!ownerId) return { data: [], total: 0, limit, offset };
+
+    const query = this.auditRepository
+      .createQueryBuilder('audit')
+      .where(
+        'audit."actorId" = :ownerId OR audit."actorId" IN (SELECT id FROM users WHERE "businessOwnerId" = :ownerId)',
+        { ownerId },
+      )
+      .orderBy('audit.timestamp', 'DESC')
+      .take(limit)
+      .skip(offset);
+
+    const [data, total] = await query.getManyAndCount();
+    return { data, total, limit, offset };
+  }
+
   async getAuditTrail(
     resourceId?: string,
     limit = 50,

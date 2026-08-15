@@ -49,7 +49,7 @@ export class AdminOrdersController {
   ) {}
 
   @Post('manual-purchase')
-  @Roles(UserRole.ADMIN, UserRole.MANAGER, UserRole.WAITER, UserRole.BAR_STAFF, UserRole.KITCHEN_STAFF, UserRole.SUPER_ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.MANAGER, UserRole.WAITER, UserRole.BAR_STAFF, UserRole.KITCHEN_STAFF)
   @HttpCode(201)
   @ApiOperation({
     summary:

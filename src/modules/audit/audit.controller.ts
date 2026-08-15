@@ -2,11 +2,11 @@ import { Controller, Get, UseGuards, Param, Query } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { JwtAuthGuard }    from '../../common/guards/jwt-auth.guard';
 import { RolesGuard }      from '../../common/guards/roles.guard';
-import { SuperAdminGuard } from '../../common/guards/super-admin.guard';
 import { Roles }           from '../../common/decorators/roles.decorator';
 import { AuditService }    from './audit.service';
 import { CurrentUser }     from '../../common/decorators/current-user.decorator';
 import { UserRole }        from '../../shared/enums';
+import { effectiveOwnerId } from '../../shared/utils/business-scope.util';
 
 @ApiTags('Audit Logs')
 @ApiBearerAuth()
@@ -15,19 +15,18 @@ import { UserRole }        from '../../shared/enums';
 export class AuditController {
   constructor(private auditService: AuditService) {}
 
-  // SUPER_ADMIN only — full platform audit log is in super-admin/audit-logs
-  // This route gives ADMIN a scoped view: only logs they or their team created
+  // Business-wide view: an owner or manager sees every action taken by
+  // anyone on their team (themselves + their staff), not just their own.
+  // SUPER_ADMIN uses the separate full-platform super-admin/audit-logs route.
   @Get()
-  @Roles(UserRole.ADMIN)
-  @ApiOperation({ summary: 'Get audit logs scoped to current admin actor' })
+  @Roles(UserRole.ADMIN, UserRole.MANAGER)
+  @ApiOperation({ summary: "Get audit logs for the caller's own business (owner + all their staff)" })
   async getMyAuditLogs(
     @CurrentUser() user: any,
     @Query('limit')  limit  = 50,
     @Query('offset') offset = 0,
   ) {
-    // Regular ADMIN sees only their own actions
-    // SUPER_ADMIN auto-passes RolesGuard and sees everything (via super-admin/audit-logs)
-    return this.auditService.getAuditTrail(user.id, limit, offset);
+    return this.auditService.getBusinessAuditTrail(effectiveOwnerId(user), limit, offset);
   }
 
   // Any ADMIN or MANAGER can look up audit trail for a specific resource
