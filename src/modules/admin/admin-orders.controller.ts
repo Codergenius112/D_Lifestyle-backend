@@ -22,7 +22,7 @@ import { IsString, IsOptional, IsNumber, Min, IsArray, ValidateNested } from 'cl
 import { Type } from 'class-transformer';
 
 class ManualPurchaseLineDto {
-  @IsString() itemId: string; // inventory item id — required, price/name come from inventory
+  @IsString() itemId: string;
   @IsNumber() @Min(1) quantity: number;
   @IsOptional() @IsString() specialInstructions?: string;
 }
@@ -70,11 +70,6 @@ export class AdminOrdersController {
       throw new BadRequestException('Add at least one item to the purchase.');
     }
 
-    // Resolve each line against live inventory — price and name always come
-    // from the inventory record, never from the client, so a purchase can't
-    // be recorded at a stale or tampered price. Scoped to the caller's own
-    // business so staff can't manually-purchase against another business's
-    // stock by guessing an inventory item id.
     const ownerId = effectiveOwnerId(user);
     const resolvedItems = [];
     for (const line of dto.items) {
@@ -95,10 +90,6 @@ export class AdminOrdersController {
       ipAddress,
     );
 
-    // Deduct every purchased item from stock automatically. If any item runs
-    // short, later items in the same purchase won't be deducted — but the
-    // order itself has already been recorded, so a partial-stock failure
-    // surfaces as a clear error without silently losing the sale record.
     for (const line of resolvedItems) {
       await this.inventoryService.deduct(
         line.itemId,
@@ -120,7 +111,9 @@ export class AdminOrdersController {
   async listAllOrders(
     @Query('limit') limit = 50,
     @Query('offset') offset = 0,
-    @CurrentUser() user: any,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
+    @CurrentUser() user?: any,
   ) {
     const ownerId = effectiveOwnerId(user);
     let owned;
@@ -128,11 +121,22 @@ export class AdminOrdersController {
       if (ownerId === null) return { orders: [], total: 0 };
       owned = await this.ownershipResolver.getOwnedResourceIds(ownerId);
     }
+
+    // Frontend sends bare dates like "2026-08-15" for both start and end.
+    // Interpreted literally, "2026-08-15" means midnight — so an end date
+    // of today would exclude every order from today. Bump endDate to the
+    // last instant of that calendar day so the whole day is included.
+    const normalizedEndDate = endDate && endDate.length === 10
+      ? `${endDate}T23:59:59.999`
+      : endDate;
+
     return this.orderService.getAllOrders(
       Number(limit),
       Number(offset),
       bookingTypesForUser(user),
       owned,
+      startDate,
+      normalizedEndDate,
     );
   }
 

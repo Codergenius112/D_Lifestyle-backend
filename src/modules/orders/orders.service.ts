@@ -54,7 +54,6 @@ export class OrderService {
     order.totalAmount = totalAmount;
     order.status      = OrderStatus.CREATED;
 
-    // Add location info based on booking type
     if (locationData) {
       if (locationData.type === 'table' && locationData.tableInfo) {
         order.tableInfo = locationData.tableInfo;
@@ -117,12 +116,10 @@ export class OrderService {
     });
   }
 
-  // bookingTypes: undefined = no restriction (super admin). [] = restrict to
-  // nothing — a scoped admin with no assigned businesses must see zero
-  // orders, not all of them.
   async getAllOrders(
     limit = 50, offset = 0, bookingTypes?: string[],
     owned?: { tableListingIds: string[]; apartmentListingIds: string[]; carListingIds: string[]; eventIds: string[]; venueIds: string[] },
+    startDate?: string, endDate?: string,
   ): Promise<{ orders: Order[]; total: number }> {
     if (bookingTypes && bookingTypes.length === 0) {
       return { orders: [], total: 0 };
@@ -135,10 +132,10 @@ export class OrderService {
       .take(limit)
       .skip(offset);
 
+    if (startDate) qb.andWhere('order."createdAt" >= :startDate', { startDate });
+    if (endDate)   qb.andWhere('order."createdAt" <= :endDate',   { endDate });
+
     if (bookingTypes) {
-      // A manual purchase with no booking (venueId/eventId only) has no
-      // booking.bookingType to filter on directly. Venue-only purchases are
-      // table/club business; event-only purchases are ticketing business.
       qb.andWhere(new Brackets((sub) => {
         sub.where('booking.bookingType IN (:...types)', { types: bookingTypes });
         if (bookingTypes.includes(BookingType.TABLE)) {
@@ -150,8 +147,6 @@ export class OrderService {
       }));
     }
 
-    // Category-level scoping (above) says "this business does table/club
-    // work"; this layer says "...and only THIS owner's specific resources."
     if (owned) {
       qb.andWhere(new Brackets((sub) => {
         let addedAny = false;
