@@ -84,15 +84,21 @@ export class AdminBookingsController {
       .select(['b', 'u.id', 'u.firstName', 'u.lastName', 'u.email', 'p'])
       .where('b.isDeleted = false');
 
+    // Once precise per-owner scoping is available (below), it's strictly
+    // more accurate than the category-level bookingType check — skip the
+    // latter entirely for owned callers rather than ANDing them, since a
+    // mismatch between a business's assigned categories and what it
+    // actually owns would otherwise silently hide bookings that genuinely
+    // belong to that owner.
+    const ownerId = effectiveOwnerId(user);
     const allowedTypes = bookingTypesForUser(user);
-    if (allowedTypes) {
+    if (ownerId === undefined && allowedTypes) {
       qb.andWhere('b.bookingType IN (:...allowedTypes)', { allowedTypes: allowedTypes.length ? allowedTypes : ['__none__'] });
     }
 
-    // Category-level scoping (above) says "this business does table/club
-    // work"; this layer says "...and only THIS owner's specific tables,
-    // not every table/club business on the platform."
-    const ownerId = effectiveOwnerId(user);
+    // Category-level scoping (above, super admin only) says "this business
+    // does table/club work"; this layer says "...and only THIS owner's
+    // specific tables, not every table/club business on the platform."
     if (ownerId !== undefined) {
       if (ownerId === null) {
         qb.andWhere('1 = 0');
@@ -132,14 +138,15 @@ export class AdminBookingsController {
       .where('b.bookingType = :type', { type: BookingType.TABLE })
       .andWhere('b.isDeleted = false');
 
-    const allowedTypes = bookingTypesForUser(user);
-    if (allowedTypes && !allowedTypes.includes(BookingType.TABLE)) {
-      // Caller's business scope doesn't include tables/clubs at all.
-      return { data: [], total: 0 };
-    }
-
     const ownerId = effectiveOwnerId(user);
-    if (ownerId !== undefined) {
+    if (ownerId === undefined) {
+      // Super admin only: category check for completeness (super admin
+      // already sees everything, so this never actually restricts).
+      const allowedTypes = bookingTypesForUser(user);
+      if (allowedTypes && !allowedTypes.includes(BookingType.TABLE)) {
+        return { data: [], total: 0 };
+      }
+    } else {
       if (ownerId === null) return { data: [], total: 0 };
       const owned = await this.ownershipResolver.getOwnedResourceIds(ownerId);
       if (!owned.tableListingIds.length) return { data: [], total: 0 };
@@ -242,13 +249,15 @@ export class AdminBookingsController {
   @ApiOperation({ summary: 'Get booking details (admin)' })
   async getBookingDetails(@Param('id') bookingId: string, @CurrentUser() user: any): Promise<BookingResponseDto> {
     const booking = await this.bookingService.getBooking(bookingId);
-    const allowedTypes = bookingTypesForUser(user);
-    if (allowedTypes && !allowedTypes.includes((booking as any).bookingType)) {
-      throw new NotFoundException('Booking not found');
-    }
-
     const ownerId = effectiveOwnerId(user);
-    if (ownerId !== undefined) {
+
+    if (ownerId === undefined) {
+      // Super admin only.
+      const allowedTypes = bookingTypesForUser(user);
+      if (allowedTypes && !allowedTypes.includes((booking as any).bookingType)) {
+        throw new NotFoundException('Booking not found');
+      }
+    } else {
       if (ownerId === null) throw new NotFoundException('Booking not found');
       const owned = await this.ownershipResolver.getOwnedResourceIds(ownerId);
       const resourceId = (booking as any).resourceId;

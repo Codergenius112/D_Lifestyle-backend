@@ -135,7 +135,7 @@ export class AnalyticsService {
       .createQueryBuilder('b')
       .where('b."createdAt" BETWEEN :start AND :end', { start: startDate, end: endDate });
 
-    if (bookingTypes) {
+    if (!owned && bookingTypes) {
       qb.andWhere('b."bookingType" IN (:...types)', { types: bookingTypes.length ? bookingTypes : ['__none__'] });
     }
 
@@ -178,7 +178,7 @@ export class AnalyticsService {
       .leftJoin('bookings', 'b', 'b.id = o."bookingId"')
       .where('o."createdAt" BETWEEN :start AND :end', { start: startDate, end: endDate });
 
-    if (bookingTypes) {
+    if (!owned && bookingTypes) {
       if (!bookingTypes.length) return [];
       qb.andWhere(new Brackets((sub) => {
         sub.where('b."bookingType" IN (:...types)', { types: bookingTypes });

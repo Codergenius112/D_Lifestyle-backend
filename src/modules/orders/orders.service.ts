@@ -121,7 +121,13 @@ export class OrderService {
     owned?: { tableListingIds: string[]; apartmentListingIds: string[]; carListingIds: string[]; eventIds: string[]; venueIds: string[] },
     startDate?: string, endDate?: string,
   ): Promise<{ orders: Order[]; total: number }> {
-    if (bookingTypes && bookingTypes.length === 0) {
+    // Once precise per-owner scoping (owned) is available, it's strictly
+    // more accurate than the category-level bookingTypes check — skip the
+    // latter entirely rather than ANDing them, since a mismatch between a
+    // business's assigned categories and what it actually owns (e.g. an
+    // event created without EVENT_TICKETING in businessScopes) would
+    // otherwise silently hide orders that genuinely belong to that owner.
+    if (!owned && bookingTypes && bookingTypes.length === 0) {
       return { orders: [], total: 0 };
     }
 
@@ -135,7 +141,7 @@ export class OrderService {
     if (startDate) qb.andWhere('order."createdAt" >= :startDate', { startDate });
     if (endDate)   qb.andWhere('order."createdAt" <= :endDate',   { endDate });
 
-    if (bookingTypes) {
+    if (!owned && bookingTypes) {
       qb.andWhere(new Brackets((sub) => {
         sub.where('booking.bookingType IN (:...types)', { types: bookingTypes });
         if (bookingTypes.includes(BookingType.TABLE)) {
@@ -147,48 +153,82 @@ export class OrderService {
       }));
     }
 
-    if (owned) {
-      qb.andWhere(new Brackets((sub) => {
-        let addedAny = false;
-        const add = (clause: string, params: any) => {
-          addedAny ? sub.orWhere(clause, params) : sub.where(clause, params);
-          addedAny = true;
-        };
-        if (owned.tableListingIds.length) {
-          add('(booking."bookingType" = :ttype AND booking."resourceId" IN (:...tIds))',
-            { ttype: BookingType.TABLE, tIds: owned.tableListingIds });
-        }
-        if (owned.apartmentListingIds.length) {
-          add('(booking."bookingType" = :atype AND booking."resourceId" IN (:...aIds))',
-            { atype: BookingType.APARTMENT, aIds: owned.apartmentListingIds });
-        }
-        if (owned.carListingIds.length) {
-          add('(booking."bookingType" = :ctype AND booking."resourceId" IN (:...cIds))',
-            { ctype: BookingType.CAR, cIds: owned.carListingIds });
-        }
-        if (owned.eventIds.length) {
-          add('((booking."bookingType" = :ktype AND booking."resourceId" IN (:...eIds)) OR order."eventId" IN (:...eIds))',
-            { ktype: BookingType.TICKET, eIds: owned.eventIds });
-        }
-        if (owned.venueIds.length) {
-          add('order."venueId" IN (:...vIds)', { vIds: owned.venueIds });
-        }
-        if (!addedAny) sub.where('1 = 0');
-      }));
-    }
+    this.applyOwnedFilter(qb, owned);
 
     const [orders, total] = await qb.getManyAndCount();
     return { orders, total };
   }
 
-  async getLiveOrders(): Promise<Order[]> {
-    return this.orderRepository
+  // Live orders dashboard was previously completely unscoped — any admin
+  // could see every non-completed order on the entire platform, across
+  // every business. Now scoped exactly like getAllOrders, with the same
+  // "ownership supersedes category" rule.
+  async getLiveOrders(
+    bookingTypes?: string[],
+    owned?: { tableListingIds: string[]; apartmentListingIds: string[]; carListingIds: string[]; eventIds: string[]; venueIds: string[] },
+  ): Promise<Order[]> {
+    if (!owned && bookingTypes && bookingTypes.length === 0) return [];
+
+    const qb = this.orderRepository
       .createQueryBuilder('order')
+      .leftJoinAndSelect('order.booking', 'booking')
       .where('order.status NOT IN (:...statuses)', {
         statuses: [OrderStatus.COMPLETED, OrderStatus.CANCELLED, OrderStatus.SERVED],
       })
-      .orderBy('order.createdAt', 'ASC')
-      .getMany();
+      .orderBy('order.createdAt', 'ASC');
+
+    if (!owned && bookingTypes) {
+      qb.andWhere(new Brackets((sub) => {
+        sub.where('booking.bookingType IN (:...types)', { types: bookingTypes });
+        if (bookingTypes.includes(BookingType.TABLE)) {
+          sub.orWhere('order.venueId IS NOT NULL');
+        }
+        if (bookingTypes.includes(BookingType.TICKET)) {
+          sub.orWhere('order.eventId IS NOT NULL');
+        }
+      }));
+    }
+
+    this.applyOwnedFilter(qb, owned);
+
+    return qb.getMany();
+  }
+
+  // Shared by getAllOrders and getLiveOrders — restricts to a specific
+  // business owner's own resources, on top of whatever category-level
+  // (bookingTypes) filtering has already been applied.
+  private applyOwnedFilter(
+    qb: any,
+    owned?: { tableListingIds: string[]; apartmentListingIds: string[]; carListingIds: string[]; eventIds: string[]; venueIds: string[] },
+  ): void {
+    if (!owned) return;
+    qb.andWhere(new Brackets((sub: any) => {
+      let addedAny = false;
+      const add = (clause: string, params: any) => {
+        addedAny ? sub.orWhere(clause, params) : sub.where(clause, params);
+        addedAny = true;
+      };
+      if (owned.tableListingIds.length) {
+        add('(booking."bookingType" = :ttype AND booking."resourceId" IN (:...tIds))',
+          { ttype: BookingType.TABLE, tIds: owned.tableListingIds });
+      }
+      if (owned.apartmentListingIds.length) {
+        add('(booking."bookingType" = :atype AND booking."resourceId" IN (:...aIds))',
+          { atype: BookingType.APARTMENT, aIds: owned.apartmentListingIds });
+      }
+      if (owned.carListingIds.length) {
+        add('(booking."bookingType" = :ctype AND booking."resourceId" IN (:...cIds))',
+          { ctype: BookingType.CAR, cIds: owned.carListingIds });
+      }
+      if (owned.eventIds.length) {
+        add('((booking."bookingType" = :ktype AND booking."resourceId" IN (:...eIds)) OR order."eventId" IN (:...eIds))',
+          { ktype: BookingType.TICKET, eIds: owned.eventIds });
+      }
+      if (owned.venueIds.length) {
+        add('order."venueId" IN (:...vIds)', { vIds: owned.venueIds });
+      }
+      if (!addedAny) sub.where('1 = 0');
+    }));
   }
 
   async assignOrderToWaiter(

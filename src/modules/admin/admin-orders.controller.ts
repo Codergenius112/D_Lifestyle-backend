@@ -142,9 +142,15 @@ export class AdminOrdersController {
 
   @Get('live')
   @Roles(UserRole.ADMIN, UserRole.MANAGER, UserRole.WAITER, UserRole.KITCHEN_STAFF, UserRole.BAR_STAFF)
-  @ApiOperation({ summary: 'Live orders dashboard' })
-  async getLiveOrders() {
-    return this.orderService.getLiveOrders();
+  @ApiOperation({ summary: 'Live orders dashboard — scoped to the caller\'s own business' })
+  async getLiveOrders(@CurrentUser() user: any) {
+    const ownerId = effectiveOwnerId(user);
+    let owned;
+    if (ownerId !== undefined) {
+      if (ownerId === null) return [];
+      owned = await this.ownershipResolver.getOwnedResourceIds(ownerId);
+    }
+    return this.orderService.getLiveOrders(bookingTypesForUser(user), owned);
   }
 
   @Get('by-station/:stationId')
