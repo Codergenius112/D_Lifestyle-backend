@@ -104,9 +104,12 @@ export class CarsService {
     return saved;
   }
 
-  async getCarRental(rentalId: string): Promise<Booking> {
+  async getCarRental(rentalId: string, userId: string): Promise<Booking> {
+    // ← FIXED — same missing-userId bug found and fixed in tickets/tables/
+    // bookings/orders/apartments: any customer could view any OTHER
+    // customer's car rental by guessing the id.
     const booking = await this.bookingRepository.findOne({
-      where: { id: rentalId, bookingType: BookingType.CAR },
+      where: { id: rentalId, userId, bookingType: BookingType.CAR },
     });
 
     if (!booking) {

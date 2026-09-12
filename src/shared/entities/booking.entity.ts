@@ -12,9 +12,16 @@ import { PaymentTransaction } from './payment.entity';
 @Index('idx_bookings_type', ['bookingType'])
 @Index('idx_bookings_status', ['status'])
 @Index('idx_bookings_group_id', ['groupId'])
+@Index('idx_bookings_business_id', ['businessId']) // ← NEW (multi-tenancy)
 export class Booking {
   @PrimaryGeneratedColumn('uuid')
   id: string;
+
+  // ← NEW (multi-tenancy) — denormalized from the parent listing's business
+  // for query performance (avoids joining up the chain on every scoped
+  // read/write). Nullable in Phase 0, backfilled Phase 1, enforced Phase 2.
+  @Column({ type: 'uuid', nullable: true })
+  businessId: string | null;
 
   @Column({ type: 'enum', enum: BookingType })
   bookingType: BookingType;

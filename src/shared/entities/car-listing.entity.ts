@@ -76,6 +76,11 @@ export class CarListing {
   @Column({ type: 'uuid', nullable: true })
   managedBy: string | null;
 
+  // ← NEW (multi-tenancy) — nullable in Phase 0, backfilled in Phase 1,
+  // enforced NOT NULL in Phase 2. See Zentra Multi-Tenancy PRD, section 11.
+  @Column({ type: 'uuid', nullable: true })
+  businessId: string | null;
+
   @CreateDateColumn()
   createdAt: Date;
 

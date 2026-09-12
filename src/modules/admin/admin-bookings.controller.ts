@@ -1,15 +1,17 @@
 import {
   Controller, Get, Patch, Post, Body, Param,
-  UseGuards, HttpCode, Query, BadRequestException, NotFoundException,
+  UseGuards, HttpCode, Query, BadRequestException, NotFoundException, ForbiddenException,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
+import { TenantScopeGuard } from '../../common/guards/tenant-scope.guard'; // ← NEW (multi-tenancy)
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { IpAddress } from '../../common/decorators/ip-address.decorator';
+import { BusinessIds, ActiveBusinessId } from '../../common/decorators/business-context.decorator'; // ← NEW (multi-tenancy)
 import { UpdateBookingStatusDto, BookingResponseDto } from '../../shared/dtos/booking.dto';
 import { BookingService } from '../bookings/bookings.service';
 import { Booking } from '../../shared/entities/booking.entity';
@@ -20,8 +22,7 @@ import { IsString, IsOptional, IsNumber, Min, IsArray, IsBoolean, ValidateNested
 import { Type } from 'class-transformer';
 import { InventoryService } from '../inventory/inventory.service';
 import { OrderService } from '../orders/orders.service';
-import { bookingTypesForUser, effectiveOwnerId, applyOwnedResourceFilter } from '../../shared/utils/business-scope.util';
-import { OwnershipResolverService } from '../../shared/services/ownership-resolver.service';
+import { BusinessContextService } from '../../shared/services/business-context.service'; // ← NEW (multi-tenancy)
 
 class WalkInOrderItemDto {
   @IsOptional() @IsString() itemId?: string;
@@ -49,14 +50,14 @@ class WalkInBookingDto {
 
 @ApiTags('Admin - Bookings Management')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, TenantScopeGuard, RolesGuard) // ← CHANGED (multi-tenancy)
 @Controller('admin/bookings')
 export class AdminBookingsController {
   constructor(
     private bookingService: BookingService,
     private readonly inventoryService: InventoryService,
     private readonly orderService: OrderService,
-    private readonly ownershipResolver: OwnershipResolverService,
+    private readonly businessContext: BusinessContextService, // ← CHANGED (multi-tenancy)
     @InjectRepository(Booking)
     private readonly bookingRepo: Repository<Booking>,
     @InjectRepository(TableListing)
@@ -67,7 +68,7 @@ export class AdminBookingsController {
 
   @Get()
   @Roles(UserRole.ADMIN, UserRole.MANAGER, UserRole.SUPER_ADMIN)
-  @ApiOperation({ summary: 'List all bookings (paginated, filtered) — scoped to the caller\'s business unless super admin' })
+  @ApiOperation({ summary: 'List all bookings (paginated, filtered) — scoped to the caller\'s business(es) unless super admin' })
   async listAllBookings(
     @Query('limit') limit = '50',
     @Query('offset') offset = '0',
@@ -76,7 +77,7 @@ export class AdminBookingsController {
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
     @Query('search') search?: string,
-    @CurrentUser() user?: any,
+    @BusinessIds() businessIds?: string[], // ← CHANGED (multi-tenancy)
   ) {
     const qb = this.bookingRepo.createQueryBuilder('b')
       .leftJoinAndSelect('b.user', 'u')
@@ -84,30 +85,18 @@ export class AdminBookingsController {
       .select(['b', 'u.id', 'u.firstName', 'u.lastName', 'u.email', 'p'])
       .where('b.isDeleted = false');
 
-    // Once precise per-owner scoping is available (below), it's strictly
-    // more accurate than the category-level bookingType check — skip the
-    // latter entirely for owned callers rather than ANDing them, since a
-    // mismatch between a business's assigned categories and what it
-    // actually owns would otherwise silently hide bookings that genuinely
-    // belong to that owner.
-    const ownerId = effectiveOwnerId(user);
-    const allowedTypes = bookingTypesForUser(user);
-    if (ownerId === undefined && allowedTypes) {
-      qb.andWhere('b.bookingType IN (:...allowedTypes)', { allowedTypes: allowedTypes.length ? allowedTypes : ['__none__'] });
-    }
-
-    // Category-level scoping (above, super admin only) says "this business
-    // does table/club work"; this layer says "...and only THIS owner's
-    // specific tables, not every table/club business on the platform."
-    if (ownerId !== undefined) {
-      if (ownerId === null) {
+    // ← CHANGED (multi-tenancy): businessIds replaces effectiveOwnerId +
+    // OwnershipResolverService's polymorphic resourceId join — bookings now
+    // carry a direct businessId column, so this is a plain equality check.
+    // undefined = super admin, no restriction. [] = no accessible business,
+    // matches nothing. Non-empty = restrict to those business(es) — this is
+    // also what correctly isolates one owner's multiple businesses from
+    // each other, which the old ownerId-only check could not do.
+    if (businessIds !== undefined) {
+      if (!businessIds.length) {
         qb.andWhere('1 = 0');
       } else {
-        const owned = await this.ownershipResolver.getOwnedResourceIds(ownerId);
-        applyOwnedResourceFilter(qb, 'b.bookingType', 'b.resourceId', owned, {
-          table: BookingType.TABLE, apartment: BookingType.APARTMENT,
-          car: BookingType.CAR, ticket: BookingType.TICKET,
-        });
+        qb.andWhere('b."businessId" IN (:...businessIds)', { businessIds });
       }
     }
 
@@ -130,7 +119,7 @@ export class AdminBookingsController {
   async listTableBookings(
     @Query('status') status?: string,
     @Query('limit') limit = '50',
-    @CurrentUser() user?: any,
+    @BusinessIds() businessIds?: string[], // ← CHANGED (multi-tenancy)
   ) {
     const qb = this.bookingRepo.createQueryBuilder('b')
       .leftJoinAndSelect('b.user', 'u')
@@ -138,19 +127,9 @@ export class AdminBookingsController {
       .where('b.bookingType = :type', { type: BookingType.TABLE })
       .andWhere('b.isDeleted = false');
 
-    const ownerId = effectiveOwnerId(user);
-    if (ownerId === undefined) {
-      // Super admin only: category check for completeness (super admin
-      // already sees everything, so this never actually restricts).
-      const allowedTypes = bookingTypesForUser(user);
-      if (allowedTypes && !allowedTypes.includes(BookingType.TABLE)) {
-        return { data: [], total: 0 };
-      }
-    } else {
-      if (ownerId === null) return { data: [], total: 0 };
-      const owned = await this.ownershipResolver.getOwnedResourceIds(ownerId);
-      if (!owned.tableListingIds.length) return { data: [], total: 0 };
-      qb.andWhere('b."resourceId" IN (:...tableIds)', { tableIds: owned.tableListingIds });
+    if (businessIds !== undefined) {
+      if (!businessIds.length) return { data: [], total: 0 };
+      qb.andWhere('b."businessId" IN (:...businessIds)', { businessIds });
     }
 
     if (status) qb.andWhere('b.status = :status', { status });
@@ -163,17 +142,37 @@ export class AdminBookingsController {
   @Roles(UserRole.ADMIN, UserRole.MANAGER, UserRole.WAITER, UserRole.BAR_STAFF, UserRole.KITCHEN_STAFF, UserRole.SUPER_ADMIN)
   @HttpCode(201)
   @ApiOperation({ summary: 'Create a manual walk-in table booking and register sales/inventory activity' })
-  async createWalkIn(@Body() dto: WalkInBookingDto, @CurrentUser() user: any, @IpAddress() ipAddress: string) {
+  async createWalkIn(
+    @Body() dto: WalkInBookingDto,
+    @CurrentUser() user: any,
+    @IpAddress() ipAddress: string,
+    @BusinessIds() businessIds?: string[], // ← NEW (multi-tenancy)
+  ) {
     const listing = await this.tableListingRepo.findOne({ where: { id: dto.tableId } });
     if (!listing) {
       throw new NotFoundException('Table listing not found');
     }
 
+    let venue: Venue | null = null;
     if (listing.venueId) {
-      const venue = await this.venueRepo.findOne({ where: { id: listing.venueId, isDeleted: false } });
+      venue = await this.venueRepo.findOne({ where: { id: listing.venueId, isDeleted: false } });
       if (venue && !venue.allowWalkInOrders) {
         throw new BadRequestException('Walk-in orders are disabled for this venue');
       }
+    }
+
+    // ← NEW (multi-tenancy) — resolve which business this table belongs to
+    // (via its venue, or its event for event-scoped tables), and reject the
+    // walk-in outright if the caller has no access to that business, or if
+    // that business is currently suspended.
+    const tableBusinessId = venue?.businessId
+      ?? (listing.eventId ? await this.businessContext.resolveBusinessIdForEvent(listing.eventId) : null);
+
+    if (tableBusinessId) {
+      if (businessIds !== undefined && !businessIds.includes(tableBusinessId)) {
+        throw new ForbiddenException('You do not have access to this table\'s business.');
+      }
+      await this.businessContext.assertBusinessActive(tableBusinessId);
     }
 
     const booking = this.bookingRepo.create({
@@ -184,6 +183,7 @@ export class AdminBookingsController {
       status:      BookingStatus.CONFIRMED,
       basePrice:   0,
       totalAmount: 0,
+      businessId:  tableBusinessId, // ← NEW (multi-tenancy)
       metadata:    {
         guestName: dto.guestName,
         notes: dto.notes,
@@ -247,27 +247,17 @@ export class AdminBookingsController {
   @Get(':id')
   @Roles(UserRole.ADMIN, UserRole.MANAGER, UserRole.SUPER_ADMIN)
   @ApiOperation({ summary: 'Get booking details (admin)' })
-  async getBookingDetails(@Param('id') bookingId: string, @CurrentUser() user: any): Promise<BookingResponseDto> {
+  async getBookingDetails(
+    @Param('id') bookingId: string,
+    @BusinessIds() businessIds?: string[], // ← CHANGED (multi-tenancy)
+  ): Promise<BookingResponseDto> {
     const booking = await this.bookingService.getBooking(bookingId);
-    const ownerId = effectiveOwnerId(user);
 
-    if (ownerId === undefined) {
-      // Super admin only.
-      const allowedTypes = bookingTypesForUser(user);
-      if (allowedTypes && !allowedTypes.includes((booking as any).bookingType)) {
+    if (businessIds !== undefined) {
+      const bookingBusinessId = (booking as any).businessId;
+      if (!businessIds.length || !bookingBusinessId || !businessIds.includes(bookingBusinessId)) {
         throw new NotFoundException('Booking not found');
       }
-    } else {
-      if (ownerId === null) throw new NotFoundException('Booking not found');
-      const owned = await this.ownershipResolver.getOwnedResourceIds(ownerId);
-      const resourceId = (booking as any).resourceId;
-      const type = (booking as any).bookingType;
-      const ownsIt =
-        (type === BookingType.TABLE     && owned.tableListingIds.includes(resourceId)) ||
-        (type === BookingType.APARTMENT && owned.apartmentListingIds.includes(resourceId)) ||
-        (type === BookingType.CAR       && owned.carListingIds.includes(resourceId)) ||
-        (type === BookingType.TICKET    && owned.eventIds.includes(resourceId));
-      if (!ownsIt) throw new NotFoundException('Booking not found');
     }
 
     return booking;
@@ -282,9 +272,14 @@ export class AdminBookingsController {
     @Body() updateStatusDto: UpdateBookingStatusDto,
     @CurrentUser() user: any,
     @IpAddress() ipAddress: string,
+    @BusinessIds() businessIds?: string[], // ← NEW (multi-tenancy — bookings gap fix)
   ): Promise<BookingResponseDto> {
+    // ← FIXED (multi-tenancy — bookings gap fix) — previously this admin
+    // override endpoint had NO business ownership check at all: an admin
+    // from ANY business could override the status of ANY booking on the
+    // entire platform.
     return this.bookingService.updateBookingStatus(
-      bookingId, updateStatusDto.status as any, user.id, ipAddress,
+      bookingId, updateStatusDto.status as any, user.id, ipAddress, user.role, businessIds,
     );
   }
 

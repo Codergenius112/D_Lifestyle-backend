@@ -10,6 +10,7 @@ import { GroupBookingCountdownService } from './group-booking-countdown.service'
 import { BookingSchedulerService }      from './booking-scheduler.service';
 import { AuditModule }         from '../audit/audit.module';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { BusinessContextService } from '../../shared/services/business-context.service'; // ← NEW (multi-tenancy)
 
 @Module({
   imports: [
@@ -22,6 +23,7 @@ import { NotificationsModule } from '../notifications/notifications.module';
     LateArrivalService,
     GroupBookingCountdownService,
     BookingSchedulerService,
+    BusinessContextService, // ← NEW (multi-tenancy)
   ],
   controllers: [BookingsController],
   exports: [BookingService, LateArrivalService, GroupBookingCountdownService],

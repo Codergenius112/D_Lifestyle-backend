@@ -42,8 +42,8 @@ export class TicketsController {
 
   @Get(':id')
   @Roles(UserRole.CUSTOMER)
-  async getTicket(@Param('id') ticketId: string) {
-    return this.ticketsService.getTicket(ticketId);
+  async getTicket(@Param('id') ticketId: string, @CurrentUser() user: any) {
+    return this.ticketsService.getTicket(ticketId, user.id);
   }
 
   @Patch(':id/cancel')

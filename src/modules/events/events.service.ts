@@ -2,12 +2,14 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Like, FindOptionsWhere } from 'typeorm';
 import { Event } from '../../shared/entities/event.entity';
+import { BusinessContextService } from '../../shared/services/business-context.service'; // ← NEW (multi-tenancy)
 
 @Injectable()
 export class EventsService {
   constructor(
     @InjectRepository(Event)
     private eventRepo: Repository<Event>,
+    private readonly businessContext: BusinessContextService, // ← NEW (multi-tenancy)
   ) {}
 
   async createEvent(data: Partial<Event>): Promise<Event> {
@@ -15,10 +17,11 @@ export class EventsService {
     return this.eventRepo.save(event);
   }
 
-  async getEvent(eventId: string, ownerId?: string | null): Promise<Event> {
+  // ← CHANGED (multi-tenancy): businessIds replaces the old single ownerId.
+  async getEvent(eventId: string, businessIds?: string[]): Promise<Event> {
     const event = await this.eventRepo.findOne({ where: { id: eventId } });
     if (!event) throw new NotFoundException('Event not found');
-    if (ownerId !== undefined && event.ownerId !== ownerId) {
+    if (businessIds !== undefined && (!businessIds.length || !businessIds.includes((event as any).businessId))) {
       throw new NotFoundException('Event not found');
     }
     return event;
@@ -46,30 +49,32 @@ export class EventsService {
     return { events, total };
   }
 
-  // Staff dashboard listing — scoped to the caller's own business unless
-  // super admin. Separate from getAllEvents so public browsing is never
-  // accidentally affected by ownership scoping.
+  // Staff dashboard listing — scoped to the caller's own business(es)
+  // unless super admin. Separate from getAllEvents so public browsing is
+  // never accidentally affected by ownership scoping.
   async getEventsForOwner(
-    limit = 50, offset = 0, status?: string, ownerId?: string | null,
+    limit = 50, offset = 0, status?: string, businessIds?: string[],
   ): Promise<{ events: Event[]; total: number }> {
-    if (ownerId === null) return { events: [], total: 0 };
+    if (businessIds && businessIds.length === 0) return { events: [], total: 0 };
 
     const qb = this.eventRepo.createQueryBuilder('e');
     if (status) qb.andWhere('e.status = :status', { status });
-    if (ownerId) qb.andWhere('e."ownerId" = :ownerId', { ownerId });
+    if (businessIds) qb.andWhere('e."businessId" IN (:...businessIds)', { businessIds });
     qb.orderBy('e.startDate', 'ASC').take(limit).skip(offset);
     const [events, total] = await qb.getManyAndCount();
     return { events, total };
   }
 
-  async updateEvent(eventId: string, data: Partial<Event>, ownerId?: string | null): Promise<Event> {
-    await this.getEvent(eventId, ownerId); // throws 404 if not found or not owned
+  async updateEvent(eventId: string, data: Partial<Event>, businessIds?: string[]): Promise<Event> {
+    const event = await this.getEvent(eventId, businessIds); // throws 404 if not found or not accessible
+    await this.businessContext.assertBusinessActive((event as any).businessId); // ← NEW (multi-tenancy)
     await this.eventRepo.update(eventId, data);
-    return this.getEvent(eventId, ownerId);
+    return this.getEvent(eventId, businessIds);
   }
 
-  async deleteEvent(eventId: string, ownerId?: string | null): Promise<void> {
-    await this.getEvent(eventId, ownerId); // throws 404 if not found or not owned
+  async deleteEvent(eventId: string, businessIds?: string[]): Promise<void> {
+    const event = await this.getEvent(eventId, businessIds); // throws 404 if not found or not accessible
+    await this.businessContext.assertBusinessActive((event as any).businessId); // ← NEW (multi-tenancy)
     await this.eventRepo.delete(eventId);
   }
 }

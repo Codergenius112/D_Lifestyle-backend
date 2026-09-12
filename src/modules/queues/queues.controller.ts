@@ -6,22 +6,29 @@ import {
   Param,
   UseGuards,
   HttpCode,
+  ForbiddenException,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
+import { TenantScopeGuard } from '../../common/guards/tenant-scope.guard'; // ← NEW (multi-tenancy — queues gap fix)
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { IpAddress } from '../../common/decorators/ip-address.decorator';
+import { BusinessIds } from '../../common/decorators/business-context.decorator'; // ← NEW (multi-tenancy — queues gap fix)
 import { QueuesService } from './queues.service';
+import { BusinessContextService } from '../../shared/services/business-context.service'; // ← NEW (multi-tenancy — queues gap fix)
 import { UserRole } from '../../shared/enums';
 
 @ApiTags('Queues')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, TenantScopeGuard, RolesGuard) // ← CHANGED (multi-tenancy — queues gap fix)
 @Controller('queues')
 export class QueuesController {
-  constructor(private queuesService: QueuesService) {}
+  constructor(
+    private queuesService: QueuesService,
+    private readonly businessContext: BusinessContextService, // ← NEW (multi-tenancy — queues gap fix)
+  ) {}
 
   @Post()
   @Roles(UserRole.CUSTOMER)
@@ -34,9 +41,25 @@ export class QueuesController {
     return this.queuesService.joinQueue(body.venueId, user.id, ipAddress);
   }
 
+  // ← CHANGED (multi-tenancy — queues gap fix): previously door staff or a
+  // manager from ANY business could view the live queue status of ANY
+  // venue by just passing a different venueId. Now checked against the
+  // caller's own business(es) — customers remain unrestricted (they're
+  // meant to check any venue's queue before deciding to join).
   @Get('venue/:venueId')
   @Roles(UserRole.CUSTOMER, UserRole.DOOR_STAFF, UserRole.MANAGER)
-  async getVenueQueue(@Param('venueId') venueId: string) {
+  async getVenueQueue(
+    @Param('venueId') venueId: string,
+    @CurrentUser() user: any,
+    @BusinessIds() businessIds?: string[],
+  ) {
+    const isStaff = [UserRole.DOOR_STAFF, UserRole.MANAGER].includes(user.role);
+    if (isStaff && businessIds !== undefined) {
+      const venueBusinessId = await this.businessContext.resolveBusinessIdForVenue(venueId);
+      if (!venueBusinessId || !businessIds.includes(venueBusinessId)) {
+        throw new ForbiddenException('You are not assigned to this venue\'s business.');
+      }
+    }
     return this.queuesService.getVenueQueueStatus(venueId);
   }
 

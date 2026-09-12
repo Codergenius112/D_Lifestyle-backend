@@ -23,6 +23,7 @@ import {
 } from '../../shared/enums';
 
 import { AuditService } from '../audit/audit.service';
+import { BusinessContextService } from '../../shared/services/business-context.service'; // ← NEW (multi-tenancy — payments/wallet gap fix)
 
 @Injectable()
 export class PaymentService {
@@ -46,6 +47,7 @@ export class PaymentService {
 
     private dataSource: DataSource,
     private auditService: AuditService,
+    private readonly businessContext: BusinessContextService, // ← NEW (multi-tenancy)
   ) {}
 
   private async getTotalPaidForBookingTx(
@@ -112,6 +114,7 @@ export class PaymentService {
         paymentMethod: method,
         status: PaymentStatus.PARTIALLY_PAID,
         completedAt: new Date(),
+        businessId: (booking as any).businessId ?? null, // ← NEW (multi-tenancy — payments/wallet gap fix)
         ...(paystackReference ? { externalRefId: paystackReference } : {}),
       });
 
@@ -167,6 +170,7 @@ export class PaymentService {
     paymentId: string,
     actorId: string,
     ipAddress?: string,
+    businessIds?: string[], // ← NEW (multi-tenancy — payments/wallet gap fix)
   ): Promise<PaymentTransaction> {
     return this.dataSource.transaction(async (manager: EntityManager) => {
       const payment = await manager.findOne(PaymentTransaction, {
@@ -175,6 +179,21 @@ export class PaymentService {
 
       if (!payment) {
         throw new NotFoundException('Payment not found');
+      }
+
+      // ← NEW (multi-tenancy — payments/wallet gap fix) — previously ANY
+      // admin, from ANY business, could refund ANY payment on the entire
+      // platform: nothing checked that the payment's booking actually
+      // belonged to the admin's own business. businessId lives on the
+      // Booking (payments themselves also carry a denormalized
+      // businessId, checked here directly rather than re-fetching the
+      // booking).
+      if (businessIds !== undefined) {
+        const paymentBusinessId = (payment as any).businessId;
+        if (!businessIds.length || !paymentBusinessId || !businessIds.includes(paymentBusinessId)) {
+          throw new NotFoundException('Payment not found');
+        }
+        await this.businessContext.assertBusinessActive(paymentBusinessId);
       }
 
       if (payment.status === PaymentStatus.REFUNDED) {

@@ -43,6 +43,13 @@ export class InventoryItem {
   @Column({ type: 'uuid', nullable: true })
   ownerId: string | null;
 
+  // ← NEW (multi-tenancy) — nullable, backfilled from ownerId via migration
+  // 1787200000000-AddBusinessIdToInventory, enforced NOT NULL in a later
+  // phase along with the other Phase 0 columns. See Zentra Multi-Tenancy
+  // PRD, section 11.
+  @Column({ type: 'uuid', nullable: true })
+  businessId: string | null;
+
   @Column({ type: 'uuid', nullable: true })
   venueId: string | null;
 

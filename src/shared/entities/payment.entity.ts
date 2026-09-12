@@ -14,9 +14,15 @@ import { Booking } from './booking.entity';
 @Index('idx_payments_booking_id', ['bookingId'])
 @Index('idx_payments_user_id', ['userId'])
 @Index('idx_payments_status', ['status'])
+@Index('idx_payments_business_id', ['businessId']) // ← NEW (multi-tenancy)
 export class PaymentTransaction {
   @PrimaryGeneratedColumn('uuid')
   id: string;
+
+  // ← NEW (multi-tenancy) — denormalized from the parent booking's business.
+  // Nullable in Phase 0, backfilled Phase 1, enforced Phase 2.
+  @Column({ type: 'uuid', nullable: true })
+  businessId: string | null;
 
   @Column({ type: 'uuid' })
   bookingId: string;

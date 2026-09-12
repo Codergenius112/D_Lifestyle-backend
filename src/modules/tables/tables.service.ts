@@ -6,6 +6,7 @@ import { TableListing } from '../../shared/entities/table-listing.entity';
 import { PlatformSettings } from '../../shared/entities/platform-settings.entity';
 import { BookingType, BookingStatus, PaymentStatus, AuditActionType, CommissionPayer } from '../../shared/enums';
 import { AuditService } from '../audit/audit.service';
+import { BusinessContextService } from '../../shared/services/business-context.service'; // ← NEW (multi-tenancy — tables gap fix)
 
 interface CreateTableBookingDto {
   venueId?: string;
@@ -28,6 +29,7 @@ export class TablesService {
     @InjectRepository(PlatformSettings)
     private platformSettingsRepository: Repository<PlatformSettings>,
     private auditService: AuditService,
+    private readonly businessContext: BusinessContextService, // ← NEW (multi-tenancy — tables gap fix)
   ) {}
 
   private async getPlatformSettings(): Promise<PlatformSettings> {
@@ -179,9 +181,12 @@ export class TablesService {
   }
 
   // ── GET /tables/:id ────────────────────────────────────────────────────────
-  async getTableBooking(bookingId: string): Promise<Booking> {
+  async getTableBooking(bookingId: string, userId: string): Promise<Booking> {
+    // ← FIXED — previously omitted userId entirely, same bug found and
+    // fixed in tickets.service.ts's getTicket: any authenticated customer
+    // could view any OTHER customer's table booking by guessing the id.
     const booking = await this.bookingRepository.findOne({
-      where: { id: bookingId, bookingType: BookingType.TABLE },
+      where: { id: bookingId, userId, bookingType: BookingType.TABLE },
     });
 
     if (!booking) {
@@ -202,20 +207,41 @@ export class TablesService {
   }
 
   // ── Admin: Table Listings Management ─────────────────────────────────────
+  // ← CHANGED (multi-tenancy — tables gap fix): this module was missed
+  // entirely during the original multi-tenancy migration. table_listings
+  // has no businessId column of its own by design (it resolves via its
+  // parent venue or event — see Zentra Multi-Tenancy PRD, section 5.1,
+  // "most can resolve it via their parent relation"), but that resolution
+  // was never actually being done here: getAllListings had NO business
+  // filtering at all (any admin saw every table listing platform-wide),
+  // and update/delete/reposition had no ownership check at all (any
+  // admin/manager could edit or delete any other business's tables).
 
-  async getAllListings(limit = 50, offset = 0, venueId?: string) {
-    const where: any = {};
-    if (venueId) where.venueId = venueId;
-    const [listings, total] = await this.tableListingRepository.findAndCount({
-      where,
-      order: { createdAt: 'DESC' },
-      take: limit,
-      skip: offset,
-    });
+  async getAllListings(limit = 50, offset = 0, venueId?: string, businessIds?: string[]) {
+    if (businessIds && businessIds.length === 0) return { listings: [], total: 0 };
+
+    const qb = this.tableListingRepository.createQueryBuilder('tl')
+      .leftJoin('venues', 'v', 'v.id = tl."venueId"')
+      .leftJoin('events', 'e', 'e.id = tl."eventId"');
+
+    if (venueId) qb.andWhere('tl."venueId" = :venueId', { venueId });
+    if (businessIds) {
+      qb.andWhere('COALESCE(v."businessId", e."businessId") IN (:...businessIds)', { businessIds });
+    }
+
+    qb.orderBy('tl."createdAt"', 'DESC').take(limit).skip(offset);
+    const [listings, total] = await qb.getManyAndCount();
     return { listings, total };
   }
 
-  async createListing(data: Partial<TableListing>): Promise<TableListing> {
+  /** Resolves a table listing's business via its parent venue or event. */
+  private async resolveListingBusinessId(listing: TableListing): Promise<string | null> {
+    if (listing.venueId) return this.businessContext.resolveBusinessIdForVenue(listing.venueId);
+    if (listing.eventId) return this.businessContext.resolveBusinessIdForEvent(listing.eventId);
+    return null;
+  }
+
+  async createListing(data: Partial<TableListing>, businessIds?: string[]): Promise<TableListing> {
     const hasVenue = !!data.venueId;
     const hasEvent = !!data.eventId;
     if (hasVenue === hasEvent) {
@@ -224,20 +250,46 @@ export class TablesService {
         'A table listing must belong to exactly one of venueId or eventId',
       );
     }
+
+    // Verify the target venue/event actually belongs to the caller's own
+    // business, BEFORE creating anything under it.
+    if (businessIds !== undefined) {
+      const targetBusinessId = data.venueId
+        ? await this.businessContext.resolveBusinessIdForVenue(data.venueId)
+        : await this.businessContext.resolveBusinessIdForEvent(data.eventId!);
+      if (!targetBusinessId || !businessIds.length || !businessIds.includes(targetBusinessId)) {
+        throw new NotFoundException(data.venueId ? 'Venue not found' : 'Event not found');
+      }
+    }
+
     const listing = this.tableListingRepository.create(data);
     return this.tableListingRepository.save(listing);
   }
 
-  async updateListing(id: string, data: Partial<TableListing>): Promise<TableListing> {
+  async updateListing(id: string, data: Partial<TableListing>, businessIds?: string[]): Promise<TableListing> {
     const listing = await this.tableListingRepository.findOne({ where: { id } });
     if (!listing) throw new NotFoundException('Table listing not found');
+    if (businessIds !== undefined) {
+      const businessId = await this.resolveListingBusinessId(listing);
+      if (!businessId || !businessIds.length || !businessIds.includes(businessId)) {
+        throw new NotFoundException('Table listing not found');
+      }
+      await this.businessContext.assertBusinessActive(businessId);
+    }
     Object.assign(listing, data);
     return this.tableListingRepository.save(listing);
   }
 
-  async deleteListing(id: string): Promise<void> {
+  async deleteListing(id: string, businessIds?: string[]): Promise<void> {
     const listing = await this.tableListingRepository.findOne({ where: { id } });
     if (!listing) throw new NotFoundException('Table listing not found');
+    if (businessIds !== undefined) {
+      const businessId = await this.resolveListingBusinessId(listing);
+      if (!businessId || !businessIds.length || !businessIds.includes(businessId)) {
+        throw new NotFoundException('Table listing not found');
+      }
+      await this.businessContext.assertBusinessActive(businessId);
+    }
     await this.tableListingRepository.delete(id);
   }
 
@@ -250,9 +302,17 @@ export class TablesService {
       width: number;
       height: number;
     },
+    businessIds?: string[],
   ): Promise<TableListing> {
     const listing = await this.tableListingRepository.findOne({ where: { id } });
     if (!listing) throw new NotFoundException('Table listing not found');
+    if (businessIds !== undefined) {
+      const businessId = await this.resolveListingBusinessId(listing);
+      if (!businessId || !businessIds.length || !businessIds.includes(businessId)) {
+        throw new NotFoundException('Table listing not found');
+      }
+      await this.businessContext.assertBusinessActive(businessId);
+    }
     listing.floorPlanPosition = positionData as any;
     return this.tableListingRepository.save(listing);
   }

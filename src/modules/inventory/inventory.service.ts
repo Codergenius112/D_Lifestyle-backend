@@ -6,8 +6,9 @@ import { Repository } from 'typeorm';
 import { InventoryItem, InventoryCategory } from '../../shared/entities/inventory-item.entity';
 import { InventoryTransaction, TransactionType } from '../../shared/entities/inventory-transaction.entity';
 import { AuditService } from '../audit/audit.service';
-import { AuditActionType, BusinessScope, UserRole } from '../../shared/enums';
+import { AuditActionType, BusinessScope, BusinessShareDataType, UserRole } from '../../shared/enums';
 import { IsString, IsNumber, IsEnum, IsOptional, IsUUID, Min } from 'class-validator';
+import { BusinessContextService } from '../../shared/services/business-context.service'; // ← NEW (multi-tenancy)
 
 export class CreateInventoryItemDto {
   @IsString() name: string;
@@ -43,10 +44,11 @@ export class InventoryService {
     @InjectRepository(InventoryTransaction)
     private readonly txRepo: Repository<InventoryTransaction>,
     private readonly auditService: AuditService,
+    private readonly businessContext: BusinessContextService, // ← NEW (multi-tenancy)
   ) {}
 
-  async createItem(dto: CreateInventoryItemDto, adminId: string, ownerId?: string | null): Promise<InventoryItem> {
-    const item = this.itemRepo.create({ ...dto, ownerId: ownerId ?? adminId });
+  async createItem(dto: CreateInventoryItemDto, adminId: string, businessId?: string | null, ownerId?: string | null): Promise<InventoryItem> {
+    const item = this.itemRepo.create({ ...dto, ownerId: ownerId ?? adminId, businessId: businessId ?? null });
     const saved = await this.itemRepo.save(item);
     await this.auditService.logAction({
       actionType: AuditActionType.INVENTORY_ITEM_CREATED,
@@ -63,9 +65,11 @@ export class InventoryService {
     id: string,
     dto: UpdateInventoryItemDto,
     actorId: string,
-    ownerId?: string | null,
+    businessIds?: string[],
   ): Promise<InventoryItem> {
-    const item = await this.findItemOrThrow(id, ownerId);
+    const item = await this.findItemOrThrow(id, businessIds);
+    await this.businessContext.assertBusinessActive((item as any).businessId); // ← NEW (multi-tenancy)
+    await this.businessContext.assertWriteAccess((item as any).businessId, businessIds, actorId, BusinessShareDataType.INVENTORY); // ← NEW (Phase 5)
     const before = {
       name: item.name,
       unit: item.unit,
@@ -92,9 +96,11 @@ export class InventoryService {
 
   async restock(
     itemId: string, quantity: number, reason: string, actorId: string, actorRole: UserRole,
-    ownerId?: string | null,
+    businessIds?: string[],
   ): Promise<InventoryTransaction> {
-    const item = await this.findItemOrThrow(itemId, ownerId);
+    const item = await this.findItemOrThrow(itemId, businessIds);
+    await this.businessContext.assertBusinessActive((item as any).businessId); // ← NEW (multi-tenancy)
+    await this.businessContext.assertWriteAccess((item as any).businessId, businessIds, actorId, BusinessShareDataType.INVENTORY); // ← NEW (Phase 5)
     const before = item.currentStock;
     item.currentStock += quantity;
     await this.itemRepo.save(item);
@@ -118,9 +124,11 @@ export class InventoryService {
 
   async deduct(
     itemId: string, quantity: number, reason: string, actorId: string, actorRole: UserRole,
-    categoryRestriction?: InventoryCategory, ownerId?: string | null,
+    categoryRestriction?: InventoryCategory, businessIds?: string[],
   ): Promise<InventoryTransaction> {
-    const item = await this.findItemOrThrow(itemId, ownerId);
+    const item = await this.findItemOrThrow(itemId, businessIds);
+    await this.businessContext.assertBusinessActive((item as any).businessId); // ← NEW (multi-tenancy)
+    await this.businessContext.assertWriteAccess((item as any).businessId, businessIds, actorId, BusinessShareDataType.INVENTORY); // ← NEW (Phase 5)
 
     if (categoryRestriction && item.category !== categoryRestriction) {
       throw new ForbiddenException('You can only deduct stock for your station category.');
@@ -153,9 +161,15 @@ export class InventoryService {
 
   async getItems(filters: {
     businessScope?: BusinessScope; allowedScopes?: BusinessScope[]; venueId?: string; lowStockOnly?: boolean;
-    limit?: number; offset?: number; ownerId?: string | null;
+    limit?: number; offset?: number; businessIds?: string[];
   }) {
-    if (filters.ownerId === null) return { data: [], total: 0 };
+    if (filters.businessIds && filters.businessIds.length === 0) return { data: [], total: 0 };
+
+    // ← NEW (Phase 5) — reads see the caller's own inventory PLUS whatever's
+    // been actively shared in from another of their businesses.
+    const readableIds = filters.businessIds
+      ? await this.businessContext.resolveReadableBusinessIds(filters.businessIds, BusinessShareDataType.INVENTORY)
+      : undefined;
 
     const qb = this.itemRepo.createQueryBuilder('i').where('i.isDeleted = false');
     if (filters.allowedScopes) {
@@ -163,7 +177,7 @@ export class InventoryService {
     } else if (filters.businessScope) {
       qb.andWhere('i.businessScope = :s', { s: filters.businessScope });
     }
-    if (filters.ownerId) qb.andWhere('i."ownerId" = :ownerId', { ownerId: filters.ownerId });
+    if (readableIds) qb.andWhere('i."businessId" IN (:...businessIds)', { businessIds: readableIds.length ? readableIds : ['__none__'] });
     if (filters.venueId) qb.andWhere('i.venueId = :v', { v: filters.venueId });
     if (filters.lowStockOnly) qb.andWhere('i.currentStock <= i.lowStockThreshold');
     qb.take(filters.limit ?? 50).skip(filters.offset ?? 0);
@@ -171,8 +185,13 @@ export class InventoryService {
     return { data, total };
   }
 
-  async getLowStockItems(businessScope?: BusinessScope, allowedScopes?: BusinessScope[], ownerId?: string | null) {
-    if (ownerId === null) return [];
+  async getLowStockItems(businessScope?: BusinessScope, allowedScopes?: BusinessScope[], businessIds?: string[]) {
+    if (businessIds && businessIds.length === 0) return [];
+
+    // ← NEW (Phase 5)
+    const readableIds = businessIds
+      ? await this.businessContext.resolveReadableBusinessIds(businessIds, BusinessShareDataType.INVENTORY)
+      : undefined;
 
     const qb = this.itemRepo.createQueryBuilder('i')
       .where('i.isDeleted = false')
@@ -182,12 +201,12 @@ export class InventoryService {
     } else if (businessScope) {
       qb.andWhere('i.businessScope = :s', { s: businessScope });
     }
-    if (ownerId) qb.andWhere('i."ownerId" = :ownerId', { ownerId });
+    if (readableIds) qb.andWhere('i."businessId" IN (:...businessIds)', { businessIds: readableIds.length ? readableIds : ['__none__'] });
     return qb.getMany();
   }
 
-  async getTransactionHistory(itemId: string, ownerId?: string | null) {
-    await this.findItemOrThrow(itemId, ownerId);
+  async getTransactionHistory(itemId: string, businessIds?: string[]) {
+    await this.findItemOrThrow(itemId, businessIds);
 
     const rows = await this.txRepo.createQueryBuilder('tx')
       .leftJoin('users', 'u', 'u.id = tx."performedBy"')
@@ -217,15 +236,23 @@ export class InventoryService {
     }));
   }
 
-  async getItem(id: string, ownerId?: string | null): Promise<InventoryItem> {
-    return this.findItemOrThrow(id, ownerId);
+  async getItem(id: string, businessIds?: string[]): Promise<InventoryItem> {
+    return this.findItemOrThrow(id, businessIds);
   }
 
-  private async findItemOrThrow(id: string, ownerId?: string | null): Promise<InventoryItem> {
+  // ← CHANGED (Phase 5): "readable" now includes items shared in from
+  // another of the caller's businesses, not just items they directly own —
+  // see BusinessContextService.resolveReadableBusinessIds. Write-time
+  // Manager-only enforcement for shared items happens separately, in each
+  // write method below (findItemOrThrow alone only governs visibility).
+  private async findItemOrThrow(id: string, businessIds?: string[]): Promise<InventoryItem> {
     const item = await this.itemRepo.findOne({ where: { id, isDeleted: false } });
     if (!item) throw new NotFoundException('Inventory item not found');
-    if (ownerId !== undefined && item.ownerId !== ownerId) {
-      throw new NotFoundException('Inventory item not found');
+    if (businessIds !== undefined) {
+      const readableIds = await this.businessContext.resolveReadableBusinessIds(businessIds, BusinessShareDataType.INVENTORY);
+      if (!readableIds || !readableIds.length || !readableIds.includes((item as any).businessId)) {
+        throw new NotFoundException('Inventory item not found');
+      }
     }
     return item;
   }

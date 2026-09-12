@@ -12,13 +12,14 @@ import { PaymentsController }        from './payments.controller';
 import { WalletController }          from './wallet.controller';
 import { PaystackWebhookController } from './paystack-webhook.controller';
 import { AuditModule }               from '../audit/audit.module';
+import { BusinessContextService }    from '../../shared/services/business-context.service'; // ← NEW (multi-tenancy — payments/wallet gap fix)
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([Booking, PaymentTransaction, Wallet, FinancialLedger, User]),
     AuditModule,
   ],
-  providers:   [PaymentService, PaystackService, WalletService],
+  providers:   [PaymentService, PaystackService, WalletService, BusinessContextService], // ← CHANGED (multi-tenancy — payments/wallet gap fix)
   controllers: [PaymentsController, WalletController, PaystackWebhookController],
   exports:     [PaymentService, PaystackService, WalletService],
 })

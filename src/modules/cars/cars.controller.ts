@@ -1,21 +1,23 @@
 import {
   Controller, Post, Get, Patch, Delete,
-  Body, Param, Query, UseGuards, HttpCode,
+  Body, Param, Query, UseGuards, HttpCode, BadRequestException, ForbiddenException,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
+import { TenantScopeGuard } from '../../common/guards/tenant-scope.guard'; // ← NEW (multi-tenancy)
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { IpAddress } from '../../common/decorators/ip-address.decorator';
+import { BusinessIds, ActiveBusinessId, ActiveBusinessScopes } from '../../common/decorators/business-context.decorator'; // ← CHANGED (scope fix)
 import { CarsService } from './cars.service';
 import { CarListingsService, CreateCarListingDto, UpdateCarListingDto } from './car-listings.service';
-import { UserRole } from '../../shared/enums';
-import { effectiveOwnerId } from '../../shared/utils/business-scope.util';
+import { UserRole, BusinessScope } from '../../shared/enums';
+import { effectiveOwnerId, hasBusinessScope } from '../../shared/utils/business-scope.util';
 
 @ApiTags('Cars')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, TenantScopeGuard, RolesGuard) // ← CHANGED (multi-tenancy)
 @Controller('cars')
 export class CarsController {
   constructor(
@@ -36,6 +38,7 @@ export class CarsController {
     @Query('withDriver') withDriver?: string,
     @Query('limit') limit?: string,
     @Query('offset') offset?: string,
+    @BusinessIds() businessIds?: string[], // ← CHANGED (multi-tenancy)
   ) {
     const isStaff = [UserRole.ADMIN, UserRole.MANAGER, UserRole.SUPER_ADMIN].includes(user.role);
     return this.carListingsService.getListings({
@@ -47,7 +50,7 @@ export class CarsController {
       withDriver: withDriver !== undefined ? withDriver === 'true' : undefined,
       limit: limit ? Number(limit) : 20,
       offset: offset ? Number(offset) : 0,
-      ownerId: isStaff ? effectiveOwnerId(user) : undefined,
+      businessIds: isStaff ? businessIds : undefined,
       activeOnly: !isStaff,
     });
   }
@@ -55,32 +58,46 @@ export class CarsController {
  
   @Get('listings/:id')
   @Roles(UserRole.CUSTOMER, UserRole.ADMIN, UserRole.MANAGER, UserRole.SUPER_ADMIN)
-  async getListing(@Param('id') id: string, @CurrentUser() user: any) {
+  async getListing(@Param('id') id: string, @CurrentUser() user: any, @BusinessIds() businessIds?: string[]) {
     const isStaff = [UserRole.ADMIN, UserRole.MANAGER, UserRole.SUPER_ADMIN].includes(user.role);
-    return this.carListingsService.getListing(id, isStaff ? effectiveOwnerId(user) : undefined);
+    return this.carListingsService.getListing(id, isStaff ? businessIds : undefined);
   }
 
   
   @Post('listings')
   @Roles(UserRole.ADMIN, UserRole.MANAGER)
   @HttpCode(201)
-  async createListing(@Body() dto: CreateCarListingDto, @CurrentUser() user: any) {
+  async createListing(
+    @Body() dto: CreateCarListingDto, @CurrentUser() user: any,
+    @ActiveBusinessId() activeBusinessId?: string | null,
+    @ActiveBusinessScopes() activeBusinessScopes?: BusinessScope[],
+  ) {
+    if (!activeBusinessId) {
+      throw new BadRequestException(
+        'Could not determine which business this listing belongs to. If you manage more than one business, specify one via the X-Business-Id header.',
+      );
+    }
+    if (!hasBusinessScope({ role: user.role, businessScopes: activeBusinessScopes }, BusinessScope.CAR_RENTAL)) {
+      throw new ForbiddenException('This business is not set up for car rentals — ask a super admin to add the scope.');
+    }
     // Stamp the actual business owner, not whoever clicked create.
-    return this.carListingsService.createListing({ ...dto, managedBy: effectiveOwnerId(user) });
+    return this.carListingsService.createListing({
+      ...dto, managedBy: effectiveOwnerId(user), businessId: activeBusinessId,
+    });
   }
 
  
   @Patch('listings/:id')
   @Roles(UserRole.ADMIN, UserRole.MANAGER)
-  async updateListing(@Param('id') id: string, @Body() dto: UpdateCarListingDto, @CurrentUser() user: any) {
-    return this.carListingsService.updateListing(id, dto, effectiveOwnerId(user));
+  async updateListing(@Param('id') id: string, @Body() dto: UpdateCarListingDto, @CurrentUser() user: any, @BusinessIds() businessIds?: string[]) {
+    return this.carListingsService.updateListing(id, dto, businessIds);
   }
 
 
   @Delete('listings/:id')
   @Roles(UserRole.ADMIN)
-  async deactivateListing(@Param('id') id: string, @CurrentUser() user: any) {
-    return this.carListingsService.deactivateListing(id, effectiveOwnerId(user));
+  async deactivateListing(@Param('id') id: string, @CurrentUser() user: any, @BusinessIds() businessIds?: string[]) {
+    return this.carListingsService.deactivateListing(id, businessIds);
   }
 
 
@@ -110,7 +127,7 @@ export class CarsController {
 
   @Get(':id')
   @Roles(UserRole.CUSTOMER)
-  async getRental(@Param('id') rentalId: string) {
-    return this.carsService.getCarRental(rentalId);
+  async getRental(@Param('id') rentalId: string, @CurrentUser() user: any) {
+    return this.carsService.getCarRental(rentalId, user.id);
   }
 }

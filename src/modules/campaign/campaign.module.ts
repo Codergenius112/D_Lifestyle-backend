@@ -9,6 +9,7 @@ import { AuditModule }            from '../audit/audit.module';
 import { PlatformSettingsModule } from '../platform-settings/platform-settings.module';
 import { PaymentsModule }         from '../payments/payments.module';
 import { NotificationsModule }    from '../notifications/notifications.module';
+import { BusinessContextService } from '../../shared/services/business-context.service'; // ← NEW (multi-tenancy — campaigns gap fix)
 
 @Module({
   imports: [
@@ -18,7 +19,7 @@ import { NotificationsModule }    from '../notifications/notifications.module';
     PaymentsModule,
     NotificationsModule,
   ],
-  providers:   [CampaignService],
+  providers:   [CampaignService, BusinessContextService], // ← CHANGED (multi-tenancy — campaigns gap fix)
   controllers: [CampaignController],
   exports:     [CampaignService],
 })

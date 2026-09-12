@@ -5,9 +5,11 @@ import {
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { JwtAuthGuard }   from '../../common/guards/jwt-auth.guard';
 import { RolesGuard }     from '../../common/guards/roles.guard';
+import { TenantScopeGuard } from '../../common/guards/tenant-scope.guard'; // ← NEW (multi-tenancy — payments/wallet gap fix)
 import { Roles }          from '../../common/decorators/roles.decorator';
 import { CurrentUser }    from '../../common/decorators/current-user.decorator';
 import { IpAddress }      from '../../common/decorators/ip-address.decorator';
+import { BusinessIds }    from '../../common/decorators/business-context.decorator'; // ← NEW (multi-tenancy — payments/wallet gap fix)
 import { PaymentService } from './payments.service';
 import { PaystackService } from './paystack.service';
 import { WalletService }  from './wallet.service';
@@ -16,7 +18,7 @@ import { v4 as uuidv4 }  from 'uuid';
 
 @ApiTags('Payments')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, TenantScopeGuard, RolesGuard) // ← CHANGED (multi-tenancy — payments/wallet gap fix)
 @Controller('payments')
 export class PaymentsController {
   constructor(
@@ -165,8 +167,9 @@ export class PaymentsController {
     @Body() body: { paymentId: string },
     @CurrentUser() user: any,
     @IpAddress() ipAddress: string,
+    @BusinessIds() businessIds?: string[], // ← NEW (multi-tenancy — payments/wallet gap fix)
   ) {
-    return this.paymentService.refundPayment(body.paymentId, user.id, ipAddress);
+    return this.paymentService.refundPayment(body.paymentId, user.id, ipAddress, businessIds);
   }
 
   // ─── 7. Get transaction ───────────────────────────────────────────────────

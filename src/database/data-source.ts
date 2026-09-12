@@ -24,6 +24,9 @@ import { PlatformSettings }   from '../shared/entities/platform-settings.entity'
 import { NotificationCampaign } from '../shared/entities/notification-campaign.entity';
 import { CampaignTier }       from '../shared/entities/campaign-tier.entity';
 import { Notification }       from '../shared/entities/notification.entity';
+import { Business }           from '../shared/entities/business.entity'; // ← NEW (multi-tenancy)
+import { StaffBusinessAssignment } from '../shared/entities/staff-business-assignment.entity'; // ← NEW (multi-tenancy)
+import { BusinessDataShare }  from '../shared/entities/business-data-share.entity'; // ← NEW (multi-tenancy)
 
 // ─── Validate required env vars on startup ───────────────────────────────────
 const requiredEnvVars = [
@@ -68,6 +71,7 @@ export const dataSourceOptions: DataSourceOptions = {
     NotificationCampaign,
     CampaignTier,
     Notification,
+    Business, StaffBusinessAssignment, BusinessDataShare, // ← NEW (multi-tenancy)
   ],
 
   migrations: [__dirname + '/migrations/*{.ts,.js}'],

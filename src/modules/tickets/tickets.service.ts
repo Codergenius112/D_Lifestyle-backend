@@ -88,9 +88,16 @@ export class TicketsService {
   }
 
   // ── GET /tickets/:id ───────────────────────────────────────────────────────
-  async getTicket(ticketId: string): Promise<Booking> {
+  async getTicket(ticketId: string, userId: string): Promise<Booking> {
+    // ← FIXED — previously omitted userId entirely, meaning any
+    // authenticated customer could view any OTHER customer's ticket
+    // (guest name, event details, payment status) just by guessing or
+    // enumerating ticket ids. Not a multi-tenancy issue specifically —
+    // a pre-existing customer-to-customer privacy leak found while
+    // reviewing this module. cancelTicket (below) already scoped
+    // correctly; this brings getTicket in line with it.
     const ticket = await this.bookingRepository.findOne({
-      where: { id: ticketId, bookingType: BookingType.TICKET },
+      where: { id: ticketId, userId, bookingType: BookingType.TICKET },
     });
     if (!ticket) throw new NotFoundException('Ticket not found');
     return ticket;

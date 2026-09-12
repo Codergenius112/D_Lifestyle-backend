@@ -16,3 +16,6 @@ export { Queue } from './queue.entity';
 export { TicketType } from './ticket-type.entity';           // ← NEW
 export { Station } from './station.entity';                 // ← NEW
 export { NotificationCampaign } from './notification-campaign.entity'; // ← NEW
+export { Business } from './business.entity'; // ← NEW (multi-tenancy)
+export { StaffBusinessAssignment } from './staff-business-assignment.entity'; // ← NEW (multi-tenancy)
+export { BusinessDataShare } from './business-data-share.entity'; // ← NEW (multi-tenancy)

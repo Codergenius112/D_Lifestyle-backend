@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Venue } from '../../shared/entities/venue.entity';
 import { IsString, IsOptional, IsNumber, IsArray, ArrayMinSize } from 'class-validator';
+import { BusinessContextService } from '../../shared/services/business-context.service'; // ← NEW (multi-tenancy)
 
 export class CreateVenueDto {
   @IsString() name: string;
@@ -27,49 +28,60 @@ export class VenueService {
   constructor(
     @InjectRepository(Venue)
     private readonly repo: Repository<Venue>,
+    private readonly businessContext: BusinessContextService, // ← NEW (multi-tenancy)
   ) {}
 
-  async create(dto: CreateVenueDto, ownerId: string): Promise<Venue> {
-    const venue = this.repo.create({ ...dto, ownerId, allowWalkInOrders: true });
+  // ← CHANGED (multi-tenancy): create() now takes an explicit businessId
+  // (resolved by the controller from TenantScopeGuard's activeBusinessId)
+  // instead of an ownerId. ownerId is still stamped for backward
+  // compatibility with any code that still reads it directly, but
+  // businessId is now the source of truth for all scoping.
+  async create(dto: CreateVenueDto, ownerId: string, businessId?: string | null): Promise<Venue> {
+    const venue = this.repo.create({ ...dto, ownerId, businessId: businessId ?? null, allowWalkInOrders: true });
     return this.repo.save(venue);
   }
 
-  // ownerId: undefined = no restriction (customers browsing, or super admin
-  // oversight). null = restrict to nothing (staff with no linked business).
-  // Otherwise, restrict to that specific business owner's venues.
+  // businessIds: undefined = no restriction (customers browsing, or super
+  // admin oversight). [] = restrict to nothing (caller has no accessible
+  // business). Otherwise, restrict to those specific business(es) — this is
+  // what lets one owner's several businesses stay isolated from each other.
   async findAll(params?: {
     city?: string; category?: string; limit?: number; offset?: number;
-    activeOnly?: boolean; ownerId?: string | null;
+    activeOnly?: boolean; businessIds?: string[];
   }) {
-    if (params?.ownerId === null) return { data: [], total: 0 };
+    if (params?.businessIds && params.businessIds.length === 0) return { data: [], total: 0 };
 
     const qb = this.repo.createQueryBuilder('v').where('v.isDeleted = false');
     if (params?.activeOnly) qb.andWhere('v.isActive = true');
     if (params?.city) qb.andWhere('v.city = :city', { city: params.city });
     if (params?.category) qb.andWhere('v.category = :category', { category: params.category });
-    if (params?.ownerId) qb.andWhere('v."ownerId" = :ownerId', { ownerId: params.ownerId });
+    if (params?.businessIds) qb.andWhere('v."businessId" IN (:...businessIds)', { businessIds: params.businessIds });
     qb.take(params?.limit ?? 50).skip(params?.offset ?? 0);
     const [data, total] = await qb.getManyAndCount();
     return { data, total };
   }
 
-  async findOne(id: string, ownerId?: string | null): Promise<Venue> {
+  async findOne(id: string, businessIds?: string[]): Promise<Venue> {
     const venue = await this.repo.findOne({ where: { id, isDeleted: false } });
     if (!venue) throw new NotFoundException('Venue not found');
-    if (ownerId !== undefined && venue.ownerId !== ownerId) {
+    if (businessIds !== undefined && (!businessIds.length || !businessIds.includes((venue as any).businessId))) {
       throw new NotFoundException('Venue not found');
     }
     return venue;
   }
 
-  async update(id: string, dto: UpdateVenueDto, ownerId?: string | null): Promise<Venue> {
-    const venue = await this.findOne(id, ownerId);
+  async update(id: string, dto: UpdateVenueDto, businessIds?: string[]): Promise<Venue> {
+    const venue = await this.findOne(id, businessIds);
+    // ← NEW (multi-tenancy) — close the suspension-freeze gap: block edits
+    // to a venue whose business is suspended, not just its bookings.
+    await this.businessContext.assertBusinessActive((venue as any).businessId);
     Object.assign(venue, dto);
     return this.repo.save(venue);
   }
 
-  async softDelete(id: string, ownerId?: string | null): Promise<void> {
-    const venue = await this.findOne(id, ownerId);
+  async softDelete(id: string, businessIds?: string[]): Promise<void> {
+    const venue = await this.findOne(id, businessIds);
+    await this.businessContext.assertBusinessActive((venue as any).businessId);
     venue.isDeleted = true;
     await this.repo.save(venue);
   }
@@ -93,8 +105,11 @@ export class VenueService {
       };
     },
     ownerId?: string | null,
+    businessIds?: string[],
   ): Promise<Venue> {
-    const venue = await this.findOne(id, ownerId);
+    void ownerId; // legacy param kept for call-site compatibility; businessIds now drives scoping
+    const venue = await this.findOne(id, businessIds);
+    await this.businessContext.assertBusinessActive((venue as any).businessId);
     venue.hasFloorPlan = floorPlanData.hasFloorPlan;
     venue.floorPlanData = floorPlanData.floorPlanData as any;
     return this.repo.save(venue);

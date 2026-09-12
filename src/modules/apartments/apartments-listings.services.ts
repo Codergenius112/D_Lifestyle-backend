@@ -5,6 +5,7 @@ import { ApartmentListing } from '../../shared/entities/apartment-listing.entity
 import {
   IsString, IsOptional, IsNumber, Min, IsArray, ArrayMinSize, IsBoolean,
 } from 'class-validator';
+import { BusinessContextService } from '../../shared/services/business-context.service'; // ← NEW (multi-tenancy)
 
 // Was previously a plain interface, which NestJS's ValidationPipe cannot
 // validate at all (interfaces are erased at runtime) — the controller took
@@ -54,9 +55,12 @@ export interface GetApartmentListingsQuery {
   bedrooms?: number;
   limit?: number;
   offset?: number;
-  // undefined = no restriction (public catalog / super admin). null =
-  // restrict to nothing. Otherwise scope to a specific business owner.
-  ownerId?: string | null;
+  // ← CHANGED (multi-tenancy): businessIds replaces the old single ownerId.
+  // undefined = no restriction (public catalog / super admin). [] =
+  // restrict to nothing. Otherwise scope to those specific business(es) —
+  // this is what lets one owner's several businesses stay isolated from
+  // each other, not just isolated from other owners.
+  businessIds?: string[];
   activeOnly?: boolean;
 }
 
@@ -65,15 +69,16 @@ export class ApartmentListingsService {
   constructor(
     @InjectRepository(ApartmentListing)
     private listingRepository: Repository<ApartmentListing>,
+    private readonly businessContext: BusinessContextService, // ← NEW (multi-tenancy)
   ) {}
 
   /**
    * GET /apartments/listings
-   * Public: all active listings. Staff (ownerId provided): only their own
-   * business's listings, active or not.
+   * Public: all active listings. Staff (businessIds provided): only their
+   * own business(es)' listings, active or not.
    */
   async getListings(query: GetApartmentListingsQuery): Promise<{ listings: ApartmentListing[]; total: number }> {
-    if (query.ownerId === null) return { listings: [], total: 0 };
+    if (query.businessIds && query.businessIds.length === 0) return { listings: [], total: 0 };
 
     const qb = this.listingRepository.createQueryBuilder('listing');
     if (query.activeOnly !== false) {
@@ -81,8 +86,8 @@ export class ApartmentListingsService {
     } else {
       qb.where('1=1');
     }
-    if (query.ownerId) {
-      qb.andWhere('listing."managedBy" = :ownerId', { ownerId: query.ownerId });
+    if (query.businessIds) {
+      qb.andWhere('listing."businessId" IN (:...businessIds)', { businessIds: query.businessIds });
     }
 
     if (query.city) {
@@ -110,14 +115,14 @@ export class ApartmentListingsService {
    * GET /apartments/listings/:id
    * Returns a single listing by ID.
    */
-  async getListing(id: string, ownerId?: string | null): Promise<ApartmentListing> {
+  async getListing(id: string, businessIds?: string[]): Promise<ApartmentListing> {
     const listing = await this.listingRepository.findOne({
       where: { id, isActive: true },
     });
     if (!listing) {
       throw new NotFoundException(`Apartment listing ${id} not found`);
     }
-    if (ownerId !== undefined && listing.managedBy !== ownerId) {
+    if (businessIds !== undefined && (!businessIds.length || !businessIds.includes((listing as any).businessId))) {
       throw new NotFoundException(`Apartment listing ${id} not found`);
     }
     return listing;
@@ -126,7 +131,7 @@ export class ApartmentListingsService {
   /**
    * POST /apartments/listings  (admin/manager only)
    */
-  async createListing(dto: CreateApartmentListingDto): Promise<ApartmentListing> {
+  async createListing(dto: CreateApartmentListingDto & { businessId?: string | null }): Promise<ApartmentListing> {
     const listing = this.listingRepository.create({
       ...dto,
       amenities: dto.amenities || [],
@@ -139,14 +144,16 @@ export class ApartmentListingsService {
   /**
    * PATCH /apartments/listings/:id  (admin/manager only)
    */
-  async updateListing(id: string, dto: UpdateApartmentListingDto, ownerId?: string | null): Promise<ApartmentListing> {
+  async updateListing(id: string, dto: UpdateApartmentListingDto, businessIds?: string[]): Promise<ApartmentListing> {
     const listing = await this.listingRepository.findOne({ where: { id } });
     if (!listing) {
       throw new NotFoundException(`Apartment listing ${id} not found`);
     }
-    if (ownerId !== undefined && listing.managedBy !== ownerId) {
+    if (businessIds !== undefined && (!businessIds.length || !businessIds.includes((listing as any).businessId))) {
       throw new NotFoundException(`Apartment listing ${id} not found`);
     }
+    // ← NEW (multi-tenancy) — close the suspension-freeze gap.
+    await this.businessContext.assertBusinessActive((listing as any).businessId);
     Object.assign(listing, dto);
     return this.listingRepository.save(listing);
   }
@@ -154,14 +161,15 @@ export class ApartmentListingsService {
   /**
    * DELETE /apartments/listings/:id  (admin only) — soft delete via isActive flag
    */
-  async deactivateListing(id: string, ownerId?: string | null): Promise<{ success: boolean }> {
+  async deactivateListing(id: string, businessIds?: string[]): Promise<{ success: boolean }> {
     const listing = await this.listingRepository.findOne({ where: { id } });
     if (!listing) {
       throw new NotFoundException(`Apartment listing ${id} not found`);
     }
-    if (ownerId !== undefined && listing.managedBy !== ownerId) {
+    if (businessIds !== undefined && (!businessIds.length || !businessIds.includes((listing as any).businessId))) {
       throw new NotFoundException(`Apartment listing ${id} not found`);
     }
+    await this.businessContext.assertBusinessActive((listing as any).businessId);
     listing.isActive = false;
     await this.listingRepository.save(listing);
     return { success: true };

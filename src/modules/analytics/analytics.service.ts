@@ -4,8 +4,8 @@ import { Repository, Between, Brackets } from 'typeorm';
 import { Booking } from '../../shared/entities/booking.entity';
 import { Order } from '../../shared/entities/order.entity';
 import { PaymentTransaction } from '../../shared/entities/payment.entity';
-import { BookingStatus, OrderStatus, BookingType } from '../../shared/enums';
-import type { OwnedResourceIds } from '../../shared/services/ownership-resolver.service';
+import { BookingStatus, OrderStatus, BookingType, BusinessShareDataType } from '../../shared/enums';
+import { BusinessContextService } from '../../shared/services/business-context.service'; // ← NEW (Phase 5)
 
 @Injectable()
 export class AnalyticsService {
@@ -16,14 +16,25 @@ export class AnalyticsService {
     private orderRepository: Repository<Order>,
     @InjectRepository(PaymentTransaction)
     private paymentRepository: Repository<PaymentTransaction>,
+    private readonly businessContext: BusinessContextService, // ← NEW (Phase 5)
   ) {}
 
-  // bookingTypes: undefined = no restriction (super admin). [] = restrict to
-  // nothing. owned: precise per-owner resource ids, layered on top of the
-  // category check — omit for super admin (no restriction).
-  async getDashboardMetrics(startDate: Date, endDate: Date, bookingTypes?: BookingType[], owned?: OwnedResourceIds) {
-    const bookings = await this.scopedBookings(startDate, endDate, bookingTypes, owned);
-    const orders   = await this.scopedOrders(startDate, endDate, bookingTypes, owned);
+  // ← NEW (Phase 5) — analytics is read-only by nature (there's no concept
+  // of "writing" a dashboard metric), so sharing ANALYTICS just expands the
+  // scope for every read below — no Manager-only write check needed here,
+  // unlike inventory.
+  private expandForAnalytics(businessIds?: string[]): Promise<string[] | undefined> {
+    return this.businessContext.resolveReadableBusinessIds(businessIds, BusinessShareDataType.ANALYTICS);
+  }
+
+  // ← CHANGED (multi-tenancy): businessIds replaces `owned` (OwnedResourceIds).
+  // undefined = no restriction (super admin). [] = restrict to nothing.
+  // non-empty = restrict to those business(es) — this is also what lets one
+  // owner's several businesses report separately rather than being merged.
+  async getDashboardMetrics(startDate: Date, endDate: Date, bookingTypes?: BookingType[], businessIds?: string[]) {
+    businessIds = await this.expandForAnalytics(businessIds);
+    const bookings = await this.scopedBookings(startDate, endDate, bookingTypes, businessIds);
+    const orders   = await this.scopedOrders(startDate, endDate, bookingTypes, businessIds);
 
     const totalBookings     = bookings.length;
     const confirmedBookings = bookings.filter(b => b.status === BookingStatus.CONFIRMED).length;
@@ -64,8 +75,9 @@ export class AnalyticsService {
     };
   }
 
-  async getBookingAnalytics(startDate: Date, endDate: Date, bookingTypes?: BookingType[], owned?: OwnedResourceIds) {
-    const bookings = await this.scopedBookings(startDate, endDate, bookingTypes, owned);
+  async getBookingAnalytics(startDate: Date, endDate: Date, bookingTypes?: BookingType[], businessIds?: string[]) {
+    businessIds = await this.expandForAnalytics(businessIds);
+    const bookings = await this.scopedBookings(startDate, endDate, bookingTypes, businessIds);
 
     const byType: Record<string, number>   = {};
     const byStatus: Record<string, number> = {};
@@ -82,8 +94,9 @@ export class AnalyticsService {
     };
   }
 
-  async getRevenueAnalytics(startDate: Date, endDate: Date, bookingTypes?: BookingType[], owned?: OwnedResourceIds) {
-    const bookings = await this.scopedBookings(startDate, endDate, bookingTypes, owned);
+  async getRevenueAnalytics(startDate: Date, endDate: Date, bookingTypes?: BookingType[], businessIds?: string[]) {
+    businessIds = await this.expandForAnalytics(businessIds);
+    const bookings = await this.scopedBookings(startDate, endDate, bookingTypes, businessIds);
 
     const confirmed = bookings.filter(b =>
       [BookingStatus.CONFIRMED, BookingStatus.COMPLETED, BookingStatus.ACTIVE].includes(b.status),
@@ -102,8 +115,9 @@ export class AnalyticsService {
     };
   }
 
-  async getStaffPerformance(startDate: Date, endDate: Date, bookingTypes?: BookingType[], owned?: OwnedResourceIds) {
-    const orders = await this.scopedOrders(startDate, endDate, bookingTypes, owned);
+  async getStaffPerformance(startDate: Date, endDate: Date, bookingTypes?: BookingType[], businessIds?: string[]) {
+    businessIds = await this.expandForAnalytics(businessIds);
+    const orders = await this.scopedOrders(startDate, endDate, bookingTypes, businessIds);
 
     const byWaiter: Record<string, { completed: number; total: number }> = {};
     for (const o of orders) {
@@ -116,8 +130,9 @@ export class AnalyticsService {
     return { period: { startDate, endDate }, byWaiter };
   }
 
-  async getOrderAnalytics(startDate: Date, endDate: Date, bookingTypes?: BookingType[], owned?: OwnedResourceIds) {
-    const orders = await this.scopedOrders(startDate, endDate, bookingTypes, owned);
+  async getOrderAnalytics(startDate: Date, endDate: Date, bookingTypes?: BookingType[], businessIds?: string[]) {
+    businessIds = await this.expandForAnalytics(businessIds);
+    const orders = await this.scopedOrders(startDate, endDate, bookingTypes, businessIds);
 
     const byStatus: Record<string, number> = {};
     for (const o of orders) {
@@ -127,58 +142,37 @@ export class AnalyticsService {
     return { period: { startDate, endDate }, total: orders.length, byStatus };
   }
 
-  // Category-level scoping (bookingTypes) says "this business does
-  // table/club work"; owned (if provided) narrows further to only that
-  // specific owner's resources.
-  private async scopedBookings(startDate: Date, endDate: Date, bookingTypes?: BookingType[], owned?: OwnedResourceIds) {
+  // ← CHANGED (multi-tenancy): a plain businessId IN (...) filter replaces
+  // the old polymorphic bookingType+resourceId bracket, now that bookings
+  // carry a direct businessId column.
+  private async scopedBookings(startDate: Date, endDate: Date, bookingTypes?: BookingType[], businessIds?: string[]) {
     const qb = this.bookingRepository
       .createQueryBuilder('b')
       .where('b."createdAt" BETWEEN :start AND :end', { start: startDate, end: endDate });
 
-    if (!owned && bookingTypes) {
+    if (!businessIds && bookingTypes) {
       qb.andWhere('b."bookingType" IN (:...types)', { types: bookingTypes.length ? bookingTypes : ['__none__'] });
     }
 
-    if (owned) {
-      qb.andWhere(new Brackets((sub) => {
-        let addedAny = false;
-        const add = (clause: string, params: any) => {
-          addedAny ? sub.orWhere(clause, params) : sub.where(clause, params);
-          addedAny = true;
-        };
-        if (owned.tableListingIds.length) {
-          add('(b."bookingType" = :ttype AND b."resourceId" IN (:...tIds))',
-            { ttype: BookingType.TABLE, tIds: owned.tableListingIds });
-        }
-        if (owned.apartmentListingIds.length) {
-          add('(b."bookingType" = :atype AND b."resourceId" IN (:...aIds))',
-            { atype: BookingType.APARTMENT, aIds: owned.apartmentListingIds });
-        }
-        if (owned.carListingIds.length) {
-          add('(b."bookingType" = :ctype AND b."resourceId" IN (:...cIds))',
-            { ctype: BookingType.CAR, cIds: owned.carListingIds });
-        }
-        if (owned.eventIds.length) {
-          add('(b."bookingType" = :ktype AND b."resourceId" IN (:...eIds))',
-            { ktype: BookingType.TICKET, eIds: owned.eventIds });
-        }
-        if (!addedAny) sub.where('1 = 0');
-      }));
+    if (businessIds) {
+      if (!businessIds.length) return [];
+      qb.andWhere('b."businessId" IN (:...businessIds)', { businessIds });
     }
 
     return qb.getMany();
   }
 
   // Orders don't always carry a bookingType directly — manual purchases can
-  // be tied to a venue or event with no booking at all. Venue-only
-  // purchases are table/club business; event-only purchases are ticketing.
-  private async scopedOrders(startDate: Date, endDate: Date, bookingTypes?: BookingType[], owned?: OwnedResourceIds) {
+  // be tied to a venue or event with no booking at all. businessId is
+  // denormalized directly onto Order regardless of which of the three it
+  // came from, so this is a single equality check either way.
+  private async scopedOrders(startDate: Date, endDate: Date, bookingTypes?: BookingType[], businessIds?: string[]) {
     const qb = this.orderRepository
       .createQueryBuilder('o')
       .leftJoin('bookings', 'b', 'b.id = o."bookingId"')
       .where('o."createdAt" BETWEEN :start AND :end', { start: startDate, end: endDate });
 
-    if (!owned && bookingTypes) {
+    if (!businessIds && bookingTypes) {
       if (!bookingTypes.length) return [];
       qb.andWhere(new Brackets((sub) => {
         sub.where('b."bookingType" IN (:...types)', { types: bookingTypes });
@@ -191,34 +185,9 @@ export class AnalyticsService {
       }));
     }
 
-    if (owned) {
-      qb.andWhere(new Brackets((sub) => {
-        let addedAny = false;
-        const add = (clause: string, params: any) => {
-          addedAny ? sub.orWhere(clause, params) : sub.where(clause, params);
-          addedAny = true;
-        };
-        if (owned.tableListingIds.length) {
-          add('(b."bookingType" = :ttype AND b."resourceId" IN (:...tIds))',
-            { ttype: BookingType.TABLE, tIds: owned.tableListingIds });
-        }
-        if (owned.apartmentListingIds.length) {
-          add('(b."bookingType" = :atype AND b."resourceId" IN (:...aIds))',
-            { atype: BookingType.APARTMENT, aIds: owned.apartmentListingIds });
-        }
-        if (owned.carListingIds.length) {
-          add('(b."bookingType" = :ctype AND b."resourceId" IN (:...cIds))',
-            { ctype: BookingType.CAR, cIds: owned.carListingIds });
-        }
-        if (owned.eventIds.length) {
-          add('((b."bookingType" = :ktype AND b."resourceId" IN (:...eIds)) OR o."eventId" IN (:...eIds))',
-            { ktype: BookingType.TICKET, eIds: owned.eventIds });
-        }
-        if (owned.venueIds.length) {
-          add('o."venueId" IN (:...vIds)', { vIds: owned.venueIds });
-        }
-        if (!addedAny) sub.where('1 = 0');
-      }));
+    if (businessIds) {
+      if (!businessIds.length) return [];
+      qb.andWhere('o."businessId" IN (:...businessIds)', { businessIds });
     }
 
     return qb.getMany();

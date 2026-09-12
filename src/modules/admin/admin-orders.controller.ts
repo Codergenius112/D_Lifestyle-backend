@@ -5,13 +5,14 @@ import {
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
+import { TenantScopeGuard } from '../../common/guards/tenant-scope.guard'; // ← NEW (multi-tenancy)
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { IpAddress } from '../../common/decorators/ip-address.decorator';
+import { BusinessIds } from '../../common/decorators/business-context.decorator'; // ← NEW (multi-tenancy)
 import { OrderService } from '../orders/orders.service';
 import { InventoryService } from '../inventory/inventory.service';
-import { bookingTypesForUser, effectiveOwnerId } from '../../shared/utils/business-scope.util';
-import { OwnershipResolverService } from '../../shared/services/ownership-resolver.service';
+import { bookingTypesForUser } from '../../shared/utils/business-scope.util';
 import {
   UpdateOrderStatusDto,
   AssignOrderToWaiterDto,
@@ -39,13 +40,12 @@ class ManualPurchaseDto {
 
 @ApiTags('Admin - Orders Management')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, TenantScopeGuard, RolesGuard) // ← CHANGED (multi-tenancy)
 @Controller('admin/orders')
 export class AdminOrdersController {
   constructor(
     private orderService: OrderService,
     private readonly inventoryService: InventoryService,
-    private readonly ownershipResolver: OwnershipResolverService,
   ) {}
 
   @Post('manual-purchase')
@@ -61,6 +61,7 @@ export class AdminOrdersController {
     @Body() dto: ManualPurchaseDto,
     @CurrentUser() user: any,
     @IpAddress() ipAddress: string,
+    @BusinessIds() businessIds?: string[], // ← NEW (multi-tenancy)
   ) {
     const targetCount = [dto.bookingId, dto.venueId, dto.eventId].filter(Boolean).length;
     if (targetCount !== 1) {
@@ -70,10 +71,11 @@ export class AdminOrdersController {
       throw new BadRequestException('Add at least one item to the purchase.');
     }
 
-    const ownerId = effectiveOwnerId(user);
+    // ← CHANGED (multi-tenancy): inventory items are now scoped by
+    // businessId the same as everything else in this pass.
     const resolvedItems = [];
     for (const line of dto.items) {
-      const invItem = await this.inventoryService.getItem(line.itemId, ownerId);
+      const invItem = await this.inventoryService.getItem(line.itemId, businessIds);
       resolvedItems.push({
         itemId: invItem.id,
         name: invItem.name,
@@ -83,6 +85,9 @@ export class AdminOrdersController {
       });
     }
 
+    // businessId for the order itself IS resolved from bookingId/venueId/
+    // eventId directly inside OrderService.createOrder (and its suspended-
+    // business freeze check runs there too).
     const order = await this.orderService.createOrder(
       { bookingId: dto.bookingId, venueId: dto.venueId, eventId: dto.eventId },
       user.id,
@@ -98,7 +103,7 @@ export class AdminOrdersController {
         user.id,
         user.role,
         undefined,
-        ownerId,
+        businessIds,
       );
     }
 
@@ -107,21 +112,15 @@ export class AdminOrdersController {
 
   @Get()
   @Roles(UserRole.ADMIN, UserRole.MANAGER, UserRole.SUPER_ADMIN)
-  @ApiOperation({ summary: 'List orders — scoped to the caller\'s business unless super admin' })
+  @ApiOperation({ summary: 'List orders — scoped to the caller\'s business(es) unless super admin' })
   async listAllOrders(
     @Query('limit') limit = 50,
     @Query('offset') offset = 0,
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
     @CurrentUser() user?: any,
+    @BusinessIds() businessIds?: string[], // ← CHANGED (multi-tenancy)
   ) {
-    const ownerId = effectiveOwnerId(user);
-    let owned;
-    if (ownerId !== undefined) {
-      if (ownerId === null) return { orders: [], total: 0 };
-      owned = await this.ownershipResolver.getOwnedResourceIds(ownerId);
-    }
-
     // Frontend sends bare dates like "2026-08-15" for both start and end.
     // Interpreted literally, "2026-08-15" means midnight — so an end date
     // of today would exclude every order from today. Bump endDate to the
@@ -134,7 +133,7 @@ export class AdminOrdersController {
       Number(limit),
       Number(offset),
       bookingTypesForUser(user),
-      owned,
+      businessIds,
       startDate,
       normalizedEndDate,
     );
@@ -142,15 +141,12 @@ export class AdminOrdersController {
 
   @Get('live')
   @Roles(UserRole.ADMIN, UserRole.MANAGER, UserRole.WAITER, UserRole.KITCHEN_STAFF, UserRole.BAR_STAFF)
-  @ApiOperation({ summary: 'Live orders dashboard — scoped to the caller\'s own business' })
-  async getLiveOrders(@CurrentUser() user: any) {
-    const ownerId = effectiveOwnerId(user);
-    let owned;
-    if (ownerId !== undefined) {
-      if (ownerId === null) return [];
-      owned = await this.ownershipResolver.getOwnedResourceIds(ownerId);
-    }
-    return this.orderService.getLiveOrders(bookingTypesForUser(user), owned);
+  @ApiOperation({ summary: 'Live orders dashboard — scoped to the caller\'s own business(es)' })
+  async getLiveOrders(
+    @CurrentUser() user: any,
+    @BusinessIds() businessIds?: string[], // ← CHANGED (multi-tenancy)
+  ) {
+    return this.orderService.getLiveOrders(bookingTypesForUser(user), businessIds);
   }
 
   @Get('by-station/:stationId')

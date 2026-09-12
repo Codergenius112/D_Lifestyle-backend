@@ -4,6 +4,7 @@ import { Repository, Brackets } from 'typeorm';
 import { Order } from '../../shared/entities/order.entity';
 import { OrderStatus, AuditActionType, BusinessScope, BookingType } from '../../shared/enums';
 import { AuditService } from '../audit/audit.service';
+import { BusinessContextService } from '../../shared/services/business-context.service'; // ← NEW (multi-tenancy)
 
 @Injectable()
 export class OrderService {
@@ -11,6 +12,7 @@ export class OrderService {
     @InjectRepository(Order)
     private orderRepository: Repository<Order>,
     private auditService: AuditService,
+    private readonly businessContext: BusinessContextService, // ← NEW (multi-tenancy)
   ) {}
 
   async createOrder(
@@ -54,6 +56,23 @@ export class OrderService {
     order.totalAmount = totalAmount;
     order.status      = OrderStatus.CREATED;
 
+    // ← NEW (multi-tenancy) — stamp businessId at creation time, resolving
+    // via whichever of bookingId/venueId/eventId was actually provided.
+    if (target.bookingId) {
+      const rows = await this.orderRepository.manager.query(
+        `SELECT "businessId" FROM bookings WHERE id = $1`, [target.bookingId],
+      );
+      order.businessId = rows[0]?.businessId ?? null;
+      // Freeze new orders against a booking whose business is suspended.
+      await this.businessContext.assertBusinessActive(order.businessId);
+    } else if (target.venueId) {
+      order.businessId = await this.businessContext.resolveBusinessIdForVenue(target.venueId);
+      await this.businessContext.assertBusinessActive(order.businessId);
+    } else if (target.eventId) {
+      order.businessId = await this.businessContext.resolveBusinessIdForEvent(target.eventId);
+      await this.businessContext.assertBusinessActive(order.businessId);
+    }
+
     if (locationData) {
       if (locationData.type === 'table' && locationData.tableInfo) {
         order.tableInfo = locationData.tableInfo;
@@ -95,11 +114,18 @@ export class OrderService {
     return { orders, total };
   }
 
-  async getOrdersByBooking(bookingId: string): Promise<Order[]> {
-    return this.orderRepository.find({
-      where: { bookingId },
-      order: { createdAt: 'DESC' },
-    });
+  async getOrdersByBooking(bookingId: string, businessIds?: string[]): Promise<Order[]> {
+    // ← FIXED (multi-tenancy — orders gap fix) — previously no scoping at
+    // all: any customer or staff member could view any orders tied to any
+    // booking on the platform.
+    const qb = this.orderRepository.createQueryBuilder('o')
+      .where('o."bookingId" = :bookingId', { bookingId })
+      .orderBy('o."createdAt"', 'DESC');
+    if (businessIds !== undefined) {
+      if (!businessIds.length) return [];
+      qb.andWhere('o."businessId" IN (:...businessIds)', { businessIds });
+    }
+    return qb.getMany();
   }
 
   async getOrdersByAssignedWaiter(waiterId: string): Promise<Order[]> {
@@ -116,18 +142,17 @@ export class OrderService {
     });
   }
 
+  // ← CHANGED (multi-tenancy): businessIds replaces the old `owned`
+  // (OwnedResourceIds) polymorphic-join parameter. Now that bookings/orders
+  // carry a direct businessId column, scoping is a plain equality/IN check
+  // instead of a per-booking-type join. undefined = no restriction (super
+  // admin); [] = restrict to nothing; non-empty = restrict to those ids.
   async getAllOrders(
     limit = 50, offset = 0, bookingTypes?: string[],
-    owned?: { tableListingIds: string[]; apartmentListingIds: string[]; carListingIds: string[]; eventIds: string[]; venueIds: string[] },
+    businessIds?: string[],
     startDate?: string, endDate?: string,
   ): Promise<{ orders: Order[]; total: number }> {
-    // Once precise per-owner scoping (owned) is available, it's strictly
-    // more accurate than the category-level bookingTypes check — skip the
-    // latter entirely rather than ANDing them, since a mismatch between a
-    // business's assigned categories and what it actually owns (e.g. an
-    // event created without EVENT_TICKETING in businessScopes) would
-    // otherwise silently hide orders that genuinely belong to that owner.
-    if (!owned && bookingTypes && bookingTypes.length === 0) {
+    if (businessIds && businessIds.length === 0) {
       return { orders: [], total: 0 };
     }
 
@@ -141,7 +166,10 @@ export class OrderService {
     if (startDate) qb.andWhere('order."createdAt" >= :startDate', { startDate });
     if (endDate)   qb.andWhere('order."createdAt" <= :endDate',   { endDate });
 
-    if (!owned && bookingTypes) {
+    if (!businessIds && bookingTypes && bookingTypes.length === 0) {
+      return { orders: [], total: 0 };
+    }
+    if (!businessIds && bookingTypes) {
       qb.andWhere(new Brackets((sub) => {
         sub.where('booking.bookingType IN (:...types)', { types: bookingTypes });
         if (bookingTypes.includes(BookingType.TABLE)) {
@@ -153,7 +181,9 @@ export class OrderService {
       }));
     }
 
-    this.applyOwnedFilter(qb, owned);
+    if (businessIds) {
+      qb.andWhere('order."businessId" IN (:...businessIds)', { businessIds });
+    }
 
     const [orders, total] = await qb.getManyAndCount();
     return { orders, total };
@@ -161,13 +191,13 @@ export class OrderService {
 
   // Live orders dashboard was previously completely unscoped — any admin
   // could see every non-completed order on the entire platform, across
-  // every business. Now scoped exactly like getAllOrders, with the same
-  // "ownership supersedes category" rule.
+  // every business. Now scoped directly by businessId.
   async getLiveOrders(
     bookingTypes?: string[],
-    owned?: { tableListingIds: string[]; apartmentListingIds: string[]; carListingIds: string[]; eventIds: string[]; venueIds: string[] },
+    businessIds?: string[],
   ): Promise<Order[]> {
-    if (!owned && bookingTypes && bookingTypes.length === 0) return [];
+    if (businessIds && businessIds.length === 0) return [];
+    if (!businessIds && bookingTypes && bookingTypes.length === 0) return [];
 
     const qb = this.orderRepository
       .createQueryBuilder('order')
@@ -177,7 +207,7 @@ export class OrderService {
       })
       .orderBy('order.createdAt', 'ASC');
 
-    if (!owned && bookingTypes) {
+    if (!businessIds && bookingTypes) {
       qb.andWhere(new Brackets((sub) => {
         sub.where('booking.bookingType IN (:...types)', { types: bookingTypes });
         if (bookingTypes.includes(BookingType.TABLE)) {
@@ -189,52 +219,27 @@ export class OrderService {
       }));
     }
 
-    this.applyOwnedFilter(qb, owned);
+    if (businessIds) {
+      qb.andWhere('order."businessId" IN (:...businessIds)', { businessIds });
+    }
 
     return qb.getMany();
   }
 
-  // Shared by getAllOrders and getLiveOrders — restricts to a specific
-  // business owner's own resources, on top of whatever category-level
-  // (bookingTypes) filtering has already been applied.
-  private applyOwnedFilter(
-    qb: any,
-    owned?: { tableListingIds: string[]; apartmentListingIds: string[]; carListingIds: string[]; eventIds: string[]; venueIds: string[] },
-  ): void {
-    if (!owned) return;
-    qb.andWhere(new Brackets((sub: any) => {
-      let addedAny = false;
-      const add = (clause: string, params: any) => {
-        addedAny ? sub.orWhere(clause, params) : sub.where(clause, params);
-        addedAny = true;
-      };
-      if (owned.tableListingIds.length) {
-        add('(booking."bookingType" = :ttype AND booking."resourceId" IN (:...tIds))',
-          { ttype: BookingType.TABLE, tIds: owned.tableListingIds });
-      }
-      if (owned.apartmentListingIds.length) {
-        add('(booking."bookingType" = :atype AND booking."resourceId" IN (:...aIds))',
-          { atype: BookingType.APARTMENT, aIds: owned.apartmentListingIds });
-      }
-      if (owned.carListingIds.length) {
-        add('(booking."bookingType" = :ctype AND booking."resourceId" IN (:...cIds))',
-          { ctype: BookingType.CAR, cIds: owned.carListingIds });
-      }
-      if (owned.eventIds.length) {
-        add('((booking."bookingType" = :ktype AND booking."resourceId" IN (:...eIds)) OR order."eventId" IN (:...eIds))',
-          { ktype: BookingType.TICKET, eIds: owned.eventIds });
-      }
-      if (owned.venueIds.length) {
-        add('order."venueId" IN (:...vIds)', { vIds: owned.venueIds });
-      }
-      if (!addedAny) sub.where('1 = 0');
-    }));
-  }
-
   async assignOrderToWaiter(
     orderId: string, waiterId: string, managerId: string, ipAddress: string,
+    businessIds?: string[], // ← NEW (multi-tenancy — orders gap fix)
   ): Promise<Order> {
     const order = await this.getOrder(orderId);
+    // ← FIXED (multi-tenancy — orders gap fix) — previously NO ownership
+    // check: a manager from any business could assign a waiter to any
+    // other business's order.
+    if (businessIds !== undefined) {
+      const orderBusinessId = (order as any).businessId;
+      if (!businessIds.length || !orderBusinessId || !businessIds.includes(orderBusinessId)) {
+        throw new NotFoundException(`Order ${orderId} not found`);
+      }
+    }
     order.assignedToUserId = waiterId;
     order.status           = OrderStatus.ASSIGNED;
     const updated = await this.orderRepository.save(order);
@@ -271,8 +276,24 @@ export class OrderService {
 
   async updateOrderStatus(
     orderId: string, newStatus: OrderStatus, userId: string, ipAddress: string,
+    businessIds?: string[], // ← NEW (multi-tenancy — orders gap fix)
   ): Promise<Order> {
     const order     = await this.getOrder(orderId);
+
+    // ← FIXED (multi-tenancy — orders gap fix) — previously NO ownership
+    // check at all: any staff member from ANY business could update the
+    // status of ANY business's order platform-wide.
+    if (businessIds !== undefined) {
+      const orderBusinessId = (order as any).businessId;
+      if (!businessIds.length || !orderBusinessId || !businessIds.includes(orderBusinessId)) {
+        throw new NotFoundException(`Order ${orderId} not found`);
+      }
+    }
+
+    // ← NEW (multi-tenancy) — freeze order state transitions while the
+    // order's business is suspended (PRD section 5.4).
+    await this.businessContext.assertBusinessActive((order as any).businessId);
+
     const oldStatus = order.status;
     order.status    = newStatus;
 

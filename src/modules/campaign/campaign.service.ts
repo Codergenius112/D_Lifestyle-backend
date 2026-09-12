@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, In } from 'typeorm';
 import { NotificationCampaign } from '../../shared/entities/notification-campaign.entity';
 import { CampaignTier } from '../../shared/entities/campaign-tier.entity';
 import { User } from '../../shared/entities/user.entity';
@@ -54,8 +54,11 @@ export class CampaignService {
     return this.repo.save(campaign);
   }
 
-  async list(params: { limit?: number; offset?: number }) {
+  async list(params: { limit?: number; offset?: number; actorIds?: string[] }) {
+    if (params.actorIds && params.actorIds.length === 0) return { data: [], total: 0 };
+    const where = params.actorIds ? { createdBy: In(params.actorIds) } : {};
     const [data, total] = await this.repo.findAndCount({
+      where,
       order: { createdAt: 'DESC' },
       take: params.limit ?? 50,
       skip: params.offset ?? 0,
@@ -63,9 +66,20 @@ export class CampaignService {
     return { data, total };
   }
 
-  async findOne(id: string): Promise<NotificationCampaign> {
+  async findOne(id: string, actorIds?: string[]): Promise<NotificationCampaign> {
     const campaign = await this.repo.findOne({ where: { id } });
     if (!campaign) throw new NotFoundException('Campaign not found');
+    // ← NEW (multi-tenancy — campaigns gap fix): NotificationCampaign has
+    // no businessId column of its own (campaigns are an intentionally
+    // platform-wide broadcast tool, not a per-business resource — see the
+    // comment in getEligibleUserIds below). "Belongs to my business" is
+    // therefore answered via the creator's identity: was this campaign
+    // made by the caller's own business (owner or one of their staff)?
+    // Previously unchecked entirely — any admin could view, and worse,
+    // SEND (and pay to send) any other business's unsent draft campaign.
+    if (actorIds !== undefined && (!actorIds.length || !actorIds.includes(campaign.createdBy))) {
+      throw new NotFoundException('Campaign not found');
+    }
     return campaign;
   }
 
@@ -91,8 +105,8 @@ export class CampaignService {
 
   // ─── Send ────────────────────────────────────────────────────────────────────
 
-  async send(id: string, adminId: string, ipAddress: string): Promise<NotificationCampaign> {
-    const campaign = await this.findOne(id);
+  async send(id: string, adminId: string, ipAddress: string, actorIds?: string[]): Promise<NotificationCampaign> {
+    const campaign = await this.findOne(id, actorIds);
 
     if (campaign.status !== 'DRAFT') {
       throw new BadRequestException(`Campaign is already ${campaign.status}`);

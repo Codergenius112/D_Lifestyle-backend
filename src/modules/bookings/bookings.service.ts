@@ -10,9 +10,11 @@ import {
   PaymentStatus,
   AuditActionType,
   CommissionPayer,
+  UserRole,
 } from '../../shared/enums';
 import { BookingStateMachine } from '../../shared/services/state-machine.service';
 import { AuditService } from '../audit/audit.service';
+import { BusinessContextService } from '../../shared/services/business-context.service'; // ← NEW (multi-tenancy)
 
 @Injectable()
 export class BookingService {
@@ -27,6 +29,7 @@ export class BookingService {
     private platformSettingsRepository: Repository<PlatformSettings>,
     private auditService: AuditService,
     private dataSource: DataSource,
+    private readonly businessContext: BusinessContextService, // ← NEW (multi-tenancy)
   ) {}
 
   private async getPlatformSettings(): Promise<PlatformSettings> {
@@ -66,6 +69,16 @@ export class BookingService {
     booking.paymentStatus = PaymentStatus.UNPAID;
     booking.metadata = { ...booking.metadata, ...(createBookingDto.metadata || {}) };
 
+    // ← NEW (multi-tenancy) — stamp businessId at creation time so every
+    // NEW booking is scoped from the start, not just backfilled historical
+    // rows. Resolution failure (null) is not fatal here: it just means the
+    // resource predates business tagging or is otherwise unresolvable, and
+    // the booking stays globally visible to super admin only, same as
+    // pre-multi-tenancy behaviour.
+    booking.businessId = await this.businessContext.resolveBusinessIdForBooking(
+      booking.bookingType, booking.resourceId,
+    );
+
     const savedBooking = await this.bookingRepository.save(booking);
 
     // Log audit
@@ -99,8 +112,44 @@ export class BookingService {
     newStatus: BookingStatus,
     userId: string,
     ipAddress: string,
+    // ← NEW (multi-tenancy — bookings gap fix) — actorRole/businessIds are
+    // optional so every EXISTING call site keeps compiling and behaving
+    // exactly as before by default (unrestricted) unless a caller
+    // explicitly opts into the check by passing them. All three real call
+    // sites (customer self-service, door-staff/admin check-in, admin
+    // override) have been updated to pass these — see each controller.
+    actorRole?: UserRole,
+    businessIds?: string[],
   ): Promise<Booking> {
     const booking = await this.getBooking(bookingId);
+
+    // ← NEW (multi-tenancy — bookings gap fix) — previously NO ownership
+    // check existed here at all: a customer could update/cancel/check in
+    // ANY OTHER customer's booking, and separately, ANY staff member from
+    // ANY business could do the same to ANY business's booking, just by
+    // knowing or guessing a booking id. Two different rules, by caller
+    // type:
+    //   - CUSTOMER: must own the booking themselves.
+    //   - Staff (door_staff/manager/admin): the booking's business must be
+    //     one of the caller's own businesses.
+    //   - SUPER_ADMIN / no businessIds passed (legacy call sites not yet
+    //     updated): unrestricted, exactly as before this fix.
+    if (actorRole === UserRole.CUSTOMER && booking.userId !== userId) {
+      throw new NotFoundException('Booking not found');
+    }
+    if (actorRole && actorRole !== UserRole.CUSTOMER && actorRole !== UserRole.SUPER_ADMIN && businessIds !== undefined) {
+      const bookingBusinessId = (booking as any).businessId;
+      if (!businessIds.length || !bookingBusinessId || !businessIds.includes(bookingBusinessId)) {
+        throw new NotFoundException('Booking not found');
+      }
+    }
+
+    // ← NEW (multi-tenancy) — freeze all state transitions while the
+    // booking's business is suspended (PRD section 5.4). Checked here
+    // rather than only at creation time, so an already-confirmed booking
+    // can't be pushed forward (or cancelled/completed) mid-suspension.
+    await this.businessContext.assertBusinessActive((booking as any).businessId);
+
     const stateMachine = new BookingStateMachine(booking.status);
 
     if (!stateMachine.canTransition(newStatus)) {

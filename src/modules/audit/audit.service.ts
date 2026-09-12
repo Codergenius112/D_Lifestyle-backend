@@ -88,21 +88,35 @@ export class AuditService {
   // Business-wide: every action taken by the owner or any of their staff.
   // ownerId undefined = no restriction (not used here, always called with
   // a real id or null). ownerId null = caller has no linked business.
+  // ← CHANGED (multi-tenancy): businessIds replaces the old single ownerId
+  // (which only ever mapped to "the owner + literally every staff member
+  // under them," conflating all of an owner's businesses into one trail).
+  // Actors are now resolved via Business.ownerId ∪ active
+  // StaffBusinessAssignment rows for exactly the given business(es), so an
+  // owner with two businesses can see either one in isolation, not just
+  // "everything I or my staff have ever done."
   async getBusinessAuditTrail(
-    ownerId: string | null | undefined,
+    businessIds: string[] | null | undefined,
     limit = 50,
     offset = 0,
   ): Promise<{ data: AuditLog[]; total: number; limit: number; offset: number }> {
     limit = Math.min(Number(limit), MAX_LIMIT);
     offset = Math.max(Number(offset), 0);
 
-    if (!ownerId) return { data: [], total: 0, limit, offset };
+    if (!businessIds || businessIds.length === 0) {
+      return { data: [], total: 0, limit, offset };
+    }
 
     const query = this.auditRepository
       .createQueryBuilder('audit')
       .where(
-        'audit."actorId" = :ownerId OR audit."actorId" IN (SELECT id FROM users WHERE "businessOwnerId" = :ownerId)',
-        { ownerId },
+        `audit."actorId" IN (
+           SELECT "ownerId" FROM businesses WHERE id IN (:...businessIds)
+           UNION
+           SELECT "userId" FROM staff_business_assignments
+           WHERE "businessId" IN (:...businessIds) AND "revokedAt" IS NULL
+         )`,
+        { businessIds },
       )
       .orderBy('audit.timestamp', 'DESC')
       .take(limit)

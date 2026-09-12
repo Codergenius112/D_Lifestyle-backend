@@ -7,13 +7,14 @@ import { ApartmentsService } from './apartments.service';
 import { ApartmentListingsService } from './apartments-listings.services';
 import { ApartmentsController } from './apartments.controller';
 import { AuditModule } from '../audit/audit.module';
+import { BusinessContextService } from '../../shared/services/business-context.service'; // ← NEW (multi-tenancy)
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([Booking, ApartmentListing, PlatformSettings]),
     AuditModule,
   ],
-  providers: [ApartmentsService, ApartmentListingsService],
+  providers: [ApartmentsService, ApartmentListingsService, BusinessContextService], // ← CHANGED (multi-tenancy)
   controllers: [ApartmentsController],
   exports: [ApartmentsService, ApartmentListingsService],
 })

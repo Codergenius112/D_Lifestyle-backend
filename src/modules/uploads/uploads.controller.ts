@@ -8,6 +8,7 @@ import { diskStorage } from 'multer';
 import { extname } from 'path';
 import type { Request } from 'express';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { RolesGuard } from '../../common/guards/roles.guard'; // ← NEW (uploads gap fix)
 import { Roles } from '../../common/decorators/roles.decorator';
 import { UserRole } from '../../shared/enums';
 
@@ -62,7 +63,7 @@ function resolveBaseUrl(req?: Request): string {
 
 @ApiTags('Uploads')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, RolesGuard) // ← FIXED (uploads gap fix): @Roles() below did NOTHING without RolesGuard in the chain — any authenticated user, including plain customers, could upload files regardless of role.
 @Controller('uploads')
 export class UploadsController {
   @Post('image')

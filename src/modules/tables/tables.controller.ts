@@ -1,17 +1,24 @@
-import { Controller, Post, Get, Patch, Delete, Body, Param, Query, UseGuards, HttpCode, ForbiddenException } from '@nestjs/common';
+import { Controller, Post, Get, Patch, Delete, Body, Param, Query, UseGuards, HttpCode, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
+import { TenantScopeGuard } from '../../common/guards/tenant-scope.guard'; // ← NEW (multi-tenancy — tables gap fix)
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { IpAddress } from '../../common/decorators/ip-address.decorator';
+import { BusinessIds, ActiveBusinessId, BusinessScopes, ActiveBusinessScopes } from '../../common/decorators/business-context.decorator'; // ← NEW (multi-tenancy — tables gap fix)
 import { TablesService } from './tables.service';
 import { UserRole, BusinessScope } from '../../shared/enums';
 import { hasBusinessScope } from '../../shared/utils/business-scope.util';
 
+// ← CHANGED (multi-tenancy — tables gap fix): this whole controller was
+// missed during the original migration — it still used the legacy
+// per-User businessScopes field, and the listings-management endpoints
+// had NO business ownership check at all. Brought in line with the same
+// pattern used by venue/apartments/cars/events.
 @ApiTags('Tables')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, TenantScopeGuard, RolesGuard)
 @Controller('tables')
 export class TablesController {
   constructor(private tablesService: TablesService) {}
@@ -43,53 +50,66 @@ export class TablesController {
 
   @Get('listings')
   @Roles(UserRole.ADMIN, UserRole.MANAGER, UserRole.SUPER_ADMIN)
-  @ApiOperation({ summary: 'List all table listings (admin) — requires TABLE_CLUB business scope' })
+  @ApiOperation({ summary: "List table listings within the caller's own business(es) — requires TABLE_CLUB scope" })
   async listListings(
     @CurrentUser() user: any,
     @Query('limit') limit = 50,
     @Query('offset') offset = 0,
     @Query('venueId') venueId?: string,
+    @BusinessIds() businessIds?: string[],
+    @BusinessScopes() businessScopes?: BusinessScope[],
   ) {
-    if (!hasBusinessScope(user, BusinessScope.TABLE_CLUB)) {
+    if (!hasBusinessScope({ role: user.role, businessScopes }, BusinessScope.TABLE_CLUB)) {
       return { listings: [], total: 0 };
     }
-    return this.tablesService.getAllListings(Number(limit), Number(offset), venueId);
+    return this.tablesService.getAllListings(Number(limit), Number(offset), venueId, businessIds);
   }
 
   @Post('listings')
   @Roles(UserRole.ADMIN, UserRole.MANAGER)
-  @ApiOperation({ summary: 'Create a table listing' })
-  async createListing(@Body() data: any, @CurrentUser() user: any) {
-    if (!hasBusinessScope(user, BusinessScope.TABLE_CLUB)) {
-      throw new ForbiddenException('You are not assigned to the table/club business.');
+  @ApiOperation({ summary: "Create a table listing under one of the caller's own venues/events" })
+  async createListing(
+    @Body() data: any,
+    @CurrentUser() user: any,
+    @BusinessIds() businessIds?: string[],
+    @ActiveBusinessScopes() activeBusinessScopes?: BusinessScope[],
+  ) {
+    if (!hasBusinessScope({ role: user.role, businessScopes: activeBusinessScopes }, BusinessScope.TABLE_CLUB)) {
+      throw new ForbiddenException('This business is not set up for tables — ask a super admin to add the scope.');
     }
-    return this.tablesService.createListing(data);
+    return this.tablesService.createListing(data, businessIds);
   }
 
   @Patch('listings/:id')
   @Roles(UserRole.ADMIN, UserRole.MANAGER)
-  @ApiOperation({ summary: 'Update a table listing' })
-  async updateListing(@Param('id') id: string, @Body() data: any, @CurrentUser() user: any) {
-    if (!hasBusinessScope(user, BusinessScope.TABLE_CLUB)) {
+  @ApiOperation({ summary: "Update a table listing, within one of the caller's own business(es)" })
+  async updateListing(
+    @Param('id') id: string, @Body() data: any, @CurrentUser() user: any,
+    @BusinessIds() businessIds?: string[], @BusinessScopes() businessScopes?: BusinessScope[],
+  ) {
+    if (!hasBusinessScope({ role: user.role, businessScopes }, BusinessScope.TABLE_CLUB)) {
       throw new ForbiddenException('You are not assigned to the table/club business.');
     }
-    return this.tablesService.updateListing(id, data);
+    return this.tablesService.updateListing(id, data, businessIds);
   }
 
   @Delete('listings/:id')
   @Roles(UserRole.ADMIN, UserRole.MANAGER)
-  @ApiOperation({ summary: 'Delete a table listing' })
+  @ApiOperation({ summary: "Delete a table listing, within one of the caller's own business(es)" })
   @HttpCode(204)
-  async deleteListing(@Param('id') id: string, @CurrentUser() user: any) {
-    if (!hasBusinessScope(user, BusinessScope.TABLE_CLUB)) {
+  async deleteListing(
+    @Param('id') id: string, @CurrentUser() user: any,
+    @BusinessIds() businessIds?: string[], @BusinessScopes() businessScopes?: BusinessScope[],
+  ) {
+    if (!hasBusinessScope({ role: user.role, businessScopes }, BusinessScope.TABLE_CLUB)) {
       throw new ForbiddenException('You are not assigned to the table/club business.');
     }
-    return this.tablesService.deleteListing(id);
+    return this.tablesService.deleteListing(id, businessIds);
   }
 
   @Patch('listings/:id/position')
   @Roles(UserRole.ADMIN, UserRole.MANAGER)
-  @ApiOperation({ summary: 'Update table floor plan position' })
+  @ApiOperation({ summary: "Update table floor plan position, within one of the caller's own business(es)" })
   async updateTablePosition(
     @Param('id') id: string,
     @CurrentUser() user: any,
@@ -100,11 +120,13 @@ export class TablesController {
       width: number;
       height: number;
     },
+    @BusinessIds() businessIds?: string[],
+    @BusinessScopes() businessScopes?: BusinessScope[],
   ) {
-    if (!hasBusinessScope(user, BusinessScope.TABLE_CLUB)) {
+    if (!hasBusinessScope({ role: user.role, businessScopes }, BusinessScope.TABLE_CLUB)) {
       throw new ForbiddenException('You are not assigned to the table/club business.');
     }
-    return this.tablesService.updateTablePosition(id, positionData);
+    return this.tablesService.updateTablePosition(id, positionData, businessIds);
   }
 
   // ── Customer routes (below static routes) ────────────────────────────────
@@ -124,7 +146,7 @@ export class TablesController {
 
   @Get(':id')
   @Roles(UserRole.CUSTOMER)
-  async getBooking(@Param('id') bookingId: string) {
-    return this.tablesService.getTableBooking(bookingId);
+  async getBooking(@Param('id') bookingId: string, @CurrentUser() user: any) {
+    return this.tablesService.getTableBooking(bookingId, user.id);
   }
 }

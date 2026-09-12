@@ -98,4 +98,25 @@ export enum AuditActionType {
   CAUTION_FEE_REFUNDED = 'CAUTION_FEE_REFUNDED', // ← NEW
   CAUTION_FEE_FORFEITED = 'CAUTION_FEE_FORFEITED', // ← NEW
   PRICE_UPDATED = 'PRICE_UPDATED',               // ← NEW
+  BUSINESS_CREATED = 'BUSINESS_CREATED',                 // ← NEW (multi-tenancy)
+  BUSINESS_STATUS_CHANGED = 'BUSINESS_STATUS_CHANGED',   // ← NEW (multi-tenancy)
+  STAFF_ASSIGNMENT_CREATED = 'STAFF_ASSIGNMENT_CREATED', // ← NEW (multi-tenancy)
+  STAFF_ASSIGNMENT_REVOKED = 'STAFF_ASSIGNMENT_REVOKED', // ← NEW (multi-tenancy)
+  DATA_SHARE_GRANTED = 'DATA_SHARE_GRANTED',             // ← NEW (multi-tenancy)
+  DATA_SHARE_REVOKED = 'DATA_SHARE_REVOKED',             // ← NEW (multi-tenancy)
+}
+
+// ← NEW (multi-tenancy) — lifecycle status of a Business (tenant)
+export enum BusinessStatus {
+  PENDING = 'PENDING',
+  APPROVED = 'APPROVED',
+  SUSPENDED = 'SUSPENDED',
+  REJECTED = 'REJECTED',
+}
+
+// ← NEW (multi-tenancy) — data domains an owner can share between their own businesses
+export enum BusinessShareDataType {
+  INVENTORY = 'INVENTORY',
+  ANALYTICS = 'ANALYTICS',
+  CUSTOMER_DIRECTORY = 'CUSTOMER_DIRECTORY',
 }

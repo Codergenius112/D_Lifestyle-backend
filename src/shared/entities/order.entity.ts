@@ -16,9 +16,15 @@ import { Booking } from './booking.entity';
 @Index('idx_orders_user_id', ['userId'])
 @Index('idx_orders_status', ['status'])
 @Index('idx_orders_assigned_to', ['assignedToUserId'])
+@Index('idx_orders_business_id', ['businessId']) // ← NEW (multi-tenancy)
 export class Order {
   @PrimaryGeneratedColumn('uuid')
   id: string;
+
+  // ← NEW (multi-tenancy) — denormalized from the parent booking/venue/event's
+  // business. Nullable in Phase 0, backfilled Phase 1, enforced Phase 2.
+  @Column({ type: 'uuid', nullable: true })
+  businessId: string | null;
 
   @Column({ type: 'uuid', nullable: true })
   bookingId: string | null;

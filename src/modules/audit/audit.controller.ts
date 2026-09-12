@@ -2,31 +2,36 @@ import { Controller, Get, UseGuards, Param, Query } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { JwtAuthGuard }    from '../../common/guards/jwt-auth.guard';
 import { RolesGuard }      from '../../common/guards/roles.guard';
+import { TenantScopeGuard } from '../../common/guards/tenant-scope.guard'; // ← NEW (multi-tenancy)
 import { Roles }           from '../../common/decorators/roles.decorator';
 import { AuditService }    from './audit.service';
 import { CurrentUser }     from '../../common/decorators/current-user.decorator';
+import { BusinessIds }     from '../../common/decorators/business-context.decorator'; // ← NEW (multi-tenancy)
 import { UserRole }        from '../../shared/enums';
-import { effectiveOwnerId } from '../../shared/utils/business-scope.util';
 
 @ApiTags('Audit Logs')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, TenantScopeGuard, RolesGuard) // ← CHANGED (multi-tenancy)
 @Controller('admin/audit-logs')
 export class AuditController {
   constructor(private auditService: AuditService) {}
 
   // Business-wide view: an owner or manager sees every action taken by
-  // anyone on their team (themselves + their staff), not just their own.
+  // anyone across their business(es) — themselves + their assigned staff —
+  // scoped by businessId rather than the old flat "all staff under this
+  // owner" model, so an owner with more than one business isn't shown a
+  // single merged trail across both.
   // SUPER_ADMIN uses the separate full-platform super-admin/audit-logs route.
   @Get()
   @Roles(UserRole.ADMIN, UserRole.MANAGER)
-  @ApiOperation({ summary: "Get audit logs for the caller's own business (owner + all their staff)" })
+  @ApiOperation({ summary: "Get audit logs for the caller's own business(es) (owner + all their assigned staff)" })
   async getMyAuditLogs(
     @CurrentUser() user: any,
     @Query('limit')  limit  = 50,
     @Query('offset') offset = 0,
+    @BusinessIds() businessIds?: string[], // ← CHANGED (multi-tenancy)
   ) {
-    return this.auditService.getBusinessAuditTrail(effectiveOwnerId(user), limit, offset);
+    return this.auditService.getBusinessAuditTrail(businessIds, limit, offset);
   }
 
   // Any ADMIN or MANAGER can look up audit trail for a specific resource

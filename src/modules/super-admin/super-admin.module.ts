@@ -5,6 +5,7 @@ import { Booking }         from '../../shared/entities/booking.entity';
 import { FinancialLedger } from '../../shared/entities/financial-ledger.entity';
 import { AuditLog }        from '../../shared/entities/audit-log.entity';
 import { CampaignTier }    from '../../shared/entities/campaign-tier.entity';
+import { Business }        from '../../shared/entities/business.entity'; // ← NEW (scope fix)
 import { SuperAdminService }      from './super-admin.service';
 import { SuperAdminController }   from './super-admin.controller';
 import { AuditModule }            from '../audit/audit.module';
@@ -14,7 +15,7 @@ import { AdminModule }            from '../admin/admin.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([User, Booking, FinancialLedger, AuditLog, CampaignTier]),
+    TypeOrmModule.forFeature([User, Booking, FinancialLedger, AuditLog, CampaignTier, Business]), // ← CHANGED (scope fix)
     AuditModule,
     AnalyticsModule,
     PlatformSettingsModule,

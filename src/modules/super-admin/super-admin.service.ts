@@ -7,7 +7,8 @@ import { User }            from '../../shared/entities/user.entity';
 import { Booking }         from '../../shared/entities/booking.entity';
 import { FinancialLedger } from '../../shared/entities/financial-ledger.entity';
 import { AuditLog }        from '../../shared/entities/audit-log.entity';
-import { UserRole, AuditActionType, BookingStatus, BusinessScope } from '../../shared/enums';
+import { Business }        from '../../shared/entities/business.entity'; // ← NEW (scope fix)
+import { UserRole, AuditActionType, BookingStatus, BusinessScope, BusinessStatus } from '../../shared/enums';
 import { AuditService }     from '../audit/audit.service';
 import { AnalyticsService } from '../analytics/analytics.service';
 
@@ -25,6 +26,9 @@ export class SuperAdminService {
 
     @InjectRepository(AuditLog)
     private auditRepository: Repository<AuditLog>,
+
+    @InjectRepository(Business) // ← NEW (scope fix)
+    private businessRepository: Repository<Business>,
 
     private auditService: AuditService,
     private analyticsService: AnalyticsService,
@@ -71,6 +75,83 @@ export class SuperAdminService {
     });
 
     return { message: 'Scopes updated', businessScopes: user.businessScopes };
+  }
+
+  // ← NEW (scope fix) — the REAL source of truth for what a business can
+  // create/manage (venues need TABLE_CLUB/EVENT_TICKETING, events need
+  // EVENT_TICKETING, etc. — see hasBusinessScope() call sites across the
+  // venue/apartments/cars/events/inventory controllers). Kept super-admin-
+  // only for now, matching the legacy updateUserScopes pattern above —
+  // intentionally simple until self-service owner onboarding (Phase 4)
+  // exists, at which point an owner may get a more scoped version of this.
+  async updateBusinessScopes(
+    businessId: string, scopes: BusinessScope[], actorId: string, ipAddress: string,
+  ) {
+    const business = await this.businessRepository.findOne({ where: { id: businessId } });
+    if (!business) throw new NotFoundException('Business not found');
+
+    const before = business.businessScopes;
+    business.businessScopes = scopes;
+    await this.businessRepository.save(business);
+
+    await this.auditService.logAction({
+      actionType: AuditActionType.BUSINESS_STATUS_CHANGED, actorId, actorRole: UserRole.SUPER_ADMIN,
+      resourceType: 'business', resourceId: businessId,
+      changes: { before: { businessScopes: before }, after: { businessScopes: scopes } },
+      ipAddress,
+    });
+
+    return { message: 'Business scopes updated', businessScopes: business.businessScopes };
+  }
+
+  // ══════════════════════════════════════════════════════════════════════
+  // Business approval / suspension — a business created via
+  // AdminService.onboardBusinessOwner starts APPROVED (pre-vetted by the
+  // super admin who onboarded them). This is for a future self-service
+  // flow (Phase 4) where a business starts PENDING and needs explicit
+  // review, plus ongoing moderation (suspend/reinstate/reject at any time).
+  // ══════════════════════════════════════════════════════════════════════
+
+  async listBusinesses(params: { status?: BusinessStatus; limit?: number; offset?: number; search?: string }) {
+    const qb = this.businessRepository.createQueryBuilder('b').where('b."isDeleted" = false');
+    if (params.status) qb.andWhere('b.status = :status', { status: params.status });
+    if (params.search) qb.andWhere('b.name ILIKE :search', { search: `%${params.search}%` });
+    qb.orderBy('b."createdAt"', 'DESC').take(params.limit ?? 50).skip(params.offset ?? 0);
+    const [data, total] = await qb.getManyAndCount();
+    return { data, total };
+  }
+
+  async getBusiness(businessId: string) {
+    const business = await this.businessRepository.findOne({ where: { id: businessId } });
+    if (!business) throw new NotFoundException('Business not found');
+    return business;
+  }
+
+  /**
+   * Moves a business to any status — PENDING → APPROVED (or REJECTED), or
+   * APPROVED → SUSPENDED and back. Suspension takes effect immediately:
+   * TenantScopeGuard/BusinessContextService.assertBusinessActive() blocks
+   * writes to anything under a SUSPENDED business the moment this lands,
+   * with no separate "apply suspension" step needed.
+   */
+  async updateBusinessStatus(
+    businessId: string, status: BusinessStatus, actorId: string, ipAddress: string,
+  ) {
+    const business = await this.businessRepository.findOne({ where: { id: businessId } });
+    if (!business) throw new NotFoundException('Business not found');
+
+    const before = business.status;
+    business.status = status;
+    await this.businessRepository.save(business);
+
+    await this.auditService.logAction({
+      actionType: AuditActionType.BUSINESS_STATUS_CHANGED, actorId, actorRole: UserRole.SUPER_ADMIN,
+      resourceType: 'business', resourceId: businessId,
+      changes: { before: { status: before }, after: { status } },
+      ipAddress,
+    });
+
+    return { message: 'Business status updated', status: business.status };
   }
 
   async promoteToAdmin(userId: string, actorId: string, ipAddress: string): Promise<User> {

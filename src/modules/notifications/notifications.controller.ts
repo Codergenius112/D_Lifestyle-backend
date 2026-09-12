@@ -1,18 +1,24 @@
-import { Controller, Get, Post, Patch, Delete, Body, Param, Query, UseGuards, HttpCode } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Body, Param, Query, UseGuards, HttpCode, ForbiddenException } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard }   from '../../common/guards/roles.guard';
+import { TenantScopeGuard } from '../../common/guards/tenant-scope.guard'; // ← NEW (multi-tenancy — notifications gap fix)
 import { Roles }        from '../../common/decorators/roles.decorator';
 import { CurrentUser }  from '../../common/decorators/current-user.decorator';
+import { BusinessIds }  from '../../common/decorators/business-context.decorator'; // ← NEW (multi-tenancy — notifications gap fix)
 import { NotificationService } from './notifications.service';
+import { BusinessContextService } from '../../shared/services/business-context.service'; // ← NEW (multi-tenancy — notifications gap fix)
 import { UserRole } from '../../shared/enums';
 
 @ApiTags('Notifications')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, TenantScopeGuard, RolesGuard) // ← CHANGED (multi-tenancy — notifications gap fix)
 @Controller('notifications')
 export class NotificationsController {
-  constructor(private notificationService: NotificationService) {}
+  constructor(
+    private notificationService: NotificationService,
+    private readonly businessContext: BusinessContextService, // ← NEW (multi-tenancy — notifications gap fix)
+  ) {}
 
   /**
    * POST /notifications/register-token
@@ -103,13 +109,26 @@ export class NotificationsController {
   /**
    * POST /notifications/send
    * Admin-only: manually send a push to a specific user.
+   * ← CHANGED (multi-tenancy — notifications gap fix): previously any
+   * admin/manager could message ANY userId on the platform. Now requires
+   * the target to actually have a booking under one of the caller's
+   * businesses — super admin is exempt (can message anyone, matching
+   * their platform-wide oversight role elsewhere).
    */
   @Post('send')
   @Roles(UserRole.ADMIN, UserRole.MANAGER, UserRole.SUPER_ADMIN)
   @HttpCode(201)
   async sendNotification(
     @Body() body: { userId: string; title: string; message: string; type?: string; data?: Record<string, any> },
+    @CurrentUser() user: any,
+    @BusinessIds() businessIds?: string[],
   ) {
+    if (businessIds !== undefined) {
+      const isCustomer = await this.businessContext.isCustomerOfAnyBusiness(body.userId, businessIds);
+      if (!isCustomer) {
+        throw new ForbiddenException('This user has no booking history with your business — you can only message your own customers.');
+      }
+    }
     await this.notificationService.sendNotification(
       body.userId,
       body.title,
@@ -123,15 +142,25 @@ export class NotificationsController {
   /**
    * POST /notifications/send-bulk
    * Admin-only: send to multiple users at once.
+   * ← CHANGED (multi-tenancy — notifications gap fix): silently filters
+   * the recipient list down to only users with a booking under one of the
+   * caller's businesses, rather than rejecting the whole batch — reports
+   * how many were actually messaged vs. requested.
    */
   @Post('send-bulk')
   @Roles(UserRole.ADMIN, UserRole.MANAGER, UserRole.SUPER_ADMIN)
   @HttpCode(201)
   async sendBulkNotification(
     @Body() body: { userIds: string[]; title: string; message: string; type?: string; data?: Record<string, any> },
+    @CurrentUser() user: any,
+    @BusinessIds() businessIds?: string[],
   ) {
+    const targetUserIds = businessIds !== undefined
+      ? await this.businessContext.filterCustomersOfAnyBusiness(body.userIds, businessIds)
+      : body.userIds;
+
     await this.notificationService.sendBulkNotification(
-      body.userIds,
+      targetUserIds,
       body.title,
       body.message,
       body.data,
@@ -139,20 +168,31 @@ export class NotificationsController {
     );
     return {
       success: true,
-      message: `Bulk notification sent to ${body.userIds.length} users`,
+      message: `Bulk notification sent to ${targetUserIds.length} of ${body.userIds.length} requested users`,
+      skipped: body.userIds.length - targetUserIds.length,
     };
   }
 
   /**
    * POST /notifications/schedule
    * Admin-only: schedule a notification for a future time.
+   * ← CHANGED (multi-tenancy — notifications gap fix): same customer-
+   * relationship check as /send.
    */
   @Post('schedule')
   @Roles(UserRole.ADMIN, UserRole.MANAGER, UserRole.SUPER_ADMIN)
   @HttpCode(201)
   async scheduleNotification(
     @Body() body: { userId: string; title: string; message: string; delaySeconds: number; type?: string; data?: Record<string, any> },
+    @CurrentUser() user: any,
+    @BusinessIds() businessIds?: string[],
   ) {
+    if (businessIds !== undefined) {
+      const isCustomer = await this.businessContext.isCustomerOfAnyBusiness(body.userId, businessIds);
+      if (!isCustomer) {
+        throw new ForbiddenException('This user has no booking history with your business — you can only message your own customers.');
+      }
+    }
     await this.notificationService.scheduleNotification(
       body.userId,
       body.title,

@@ -7,13 +7,14 @@ import { CarsService } from './cars.service';
 import { CarListingsService } from './car-listings.service';
 import { CarsController } from './cars.controller';
 import { AuditModule } from '../audit/audit.module';
+import { BusinessContextService } from '../../shared/services/business-context.service'; // ← NEW (multi-tenancy)
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([Booking, CarListing, PlatformSettings]),
     AuditModule,
   ],
-  providers: [CarsService, CarListingsService],
+  providers: [CarsService, CarListingsService, BusinessContextService], // ← CHANGED (multi-tenancy)
   controllers: [CarsController],
   exports: [CarsService, CarListingsService],
 })

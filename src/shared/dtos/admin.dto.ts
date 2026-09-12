@@ -104,6 +104,15 @@ export class AddStaffDto {
 export class UpdateStaffRoleDto {
   @IsEnum(UserRole)
   role: UserRole;
+
+  // ← NEW (multi-tenancy) — which of the staff member's assignments this
+  // role change applies to. Required when the staff member has more than
+  // one active business assignment; optional (defaults to their sole
+  // assignment) otherwise. See AdminService.updateStaffRole for the
+  // per-business-role caveat re: route-level guard enforcement.
+  @IsOptional()
+  @IsString()
+  businessId?: string;
 }
 
 export class AnalyticsQueryDto {

@@ -47,26 +47,45 @@ export interface PaystackTransferResponse {
 export class PaystackService {
   private readonly logger = new Logger(PaystackService.name);
   private readonly client: AxiosInstance;
-  private readonly secretKey: string;
+  // ← CHANGED (production resilience): no longer throws at construction
+  // time. NestJS eagerly instantiates every provider at boot, so a
+  // constructor-time throw here previously crashed the ENTIRE application
+  // — every module, every unrelated endpoint — the moment
+  // PAYSTACK_SECRET_KEY was missing, even for someone who only wants to
+  // test bookings/venues/staff and has zero intention of touching
+  // payments. The key is now checked lazily, only when a method that
+  // actually calls Paystack's API is invoked — the app boots fine without
+  // it, and using a Paystack method without it configured still fails
+  // loudly and immediately, just deferred to the point of actual use.
+  private readonly secretKey: string | null;
 
   constructor() {
     const secret = process.env.PAYSTACK_SECRET_KEY;
-    if (!secret) {
-      throw new InternalServerErrorException(
-        'PAYSTACK_SECRET_KEY is not set in environment variables.',
+    this.secretKey = secret || null;
+
+    if (!this.secretKey) {
+      this.logger.warn(
+        'PAYSTACK_SECRET_KEY is not set — payment features will fail if used, but the rest of the app will run normally.',
       );
     }
-
-    this.secretKey = secret;
 
     this.client = axios.create({
       baseURL: 'https://api.paystack.co',
       headers: {
-        Authorization: `Bearer ${this.secretKey}`,
+        Authorization: `Bearer ${this.secretKey ?? ''}`,
         'Content-Type': 'application/json',
       },
       timeout: 30_000,
     });
+  }
+
+  /** Called at the start of every method below that actually hits Paystack's API. */
+  private ensureConfigured(): void {
+    if (!this.secretKey) {
+      throw new InternalServerErrorException(
+        'PAYSTACK_SECRET_KEY is not set in environment variables.',
+      );
+    }
   }
 
   // ─── 1. Initialize a transaction (Paystack Popup / Redirect) ──────────────
@@ -78,6 +97,7 @@ export class PaystackService {
     reference: string,
     metadata?: Record<string, any>,
   ): Promise<PaystackInitResponse> {
+    this.ensureConfigured();
     if (amountNaira <= 0) {
       throw new BadRequestException('Amount must be greater than 0');
     }
@@ -112,6 +132,7 @@ export class PaystackService {
   // Call this server-side after mobile confirms payment to double-check
   // with Paystack before crediting wallet or confirming booking.
   async verifyTransaction(reference: string): Promise<PaystackVerifyResponse> {
+    this.ensureConfigured();
     if (!reference) {
       throw new BadRequestException('Reference is required');
     }
@@ -146,6 +167,7 @@ export class PaystackService {
 
   // ─── 3. List banks (for withdrawal/payout setup) ──────────────────────────
   async listBanks(): Promise<PaystackBankListItem[]> {
+    this.ensureConfigured();
     try {
       const { data } = await this.client.get('/bank?currency=NGN&perPage=100');
 
@@ -164,6 +186,7 @@ export class PaystackService {
     accountNumber: string,
     bankCode: string,
   ): Promise<PaystackResolveAccountResponse> {
+    this.ensureConfigured();
     try {
       const { data } = await this.client.get(
         `/bank/resolve?account_number=${accountNumber}&bank_code=${bankCode}`,
@@ -191,6 +214,7 @@ export class PaystackService {
     accountNumber: string,
     bankCode: string,
   ): Promise<PaystackTransferRecipientResponse> {
+    this.ensureConfigured();
     try {
       const { data } = await this.client.post('/transferrecipient', {
         type:           'nuban',
@@ -223,6 +247,7 @@ export class PaystackService {
     reference: string,
     reason: string,
   ): Promise<PaystackTransferResponse> {
+    this.ensureConfigured();
     if (amountNaira <= 0) {
       throw new BadRequestException('Transfer amount must be greater than 0');
     }
